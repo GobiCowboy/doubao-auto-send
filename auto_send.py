@@ -91,7 +91,6 @@ def event_callback(proxy, event_type, event, refcon):
             log.info(f"双击 Ctrl (间隔 {gap:.0f}ms) → 自动回车")
             # 延迟 200ms 发送 Enter，等 Ctrl 释放完成
             threading.Timer(0.2, press_enter).start()
-            notify("双击 Ctrl → 已发送")
             last_ctrl_time = 0
             cooldown = True
         else:
