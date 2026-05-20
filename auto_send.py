@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-轻量级 macOS 输入框监听工具
-监听所有应用输入框文本，当末尾出现"发送"时自动按回车
-适用于豆包输入法语音输入场景：说"发送"即可自动发出消息
+连按两下左 Control → 模拟回车（发送）
+纯监听模式，不拦截任何按键事件
 
 用法：
-  python3 auto_send.py              # 启动监听
-  python3 auto_send.py --disable    # 直接退出（用于关闭）
-  kill -USR1 <pid>                  # 暂停/恢复切换
+  python3 auto_send.py              # 启动
+  kill -USR1 <pid>                  # 暂停/恢复
+  Ctrl+C                            # 退出
 """
 
 import os
@@ -15,15 +14,14 @@ import sys
 import time
 import signal
 import logging
-import argparse
+import threading
 import subprocess
 
-import ApplicationServices
 import Quartz
 
 # ── 配置 ──────────────────────────────────────────────────────────
-TRIGGER_TEXT = "发送"
-POLL_INTERVAL = 0.2          # 轮询间隔（秒）
+DOUBLE_TAP_INTERVAL = 0.3     # 双击间隔（秒）
+CTRL_FLAG = 0x40000           # kCGEventFlagMaskControl
 
 # ── 日志 ──────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -31,59 +29,24 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%H:%M:%S",
 )
-log = logging.getLogger("auto-send")
+log = logging.getLogger("ctrl-enter")
 
 # ── 全局状态 ──────────────────────────────────────────────────────
 paused = False
-last_triggered_text = None
+last_ctrl_time = 0.0
+ctrl_was_down = False
+cooldown = False              # 触发后冷却，防止 Enter 事件再次触发
 
-
-# ── 辅助功能 API ──────────────────────────────────────────────────
-
-def get_focused_element():
-    """获取当前前台应用的焦点 UI 元素"""
-    app = ApplicationServices.NSWorkspace.sharedWorkspace().frontmostApplication()
-    if app is None:
-        return None
-    pid = app.processIdentifier()
-    app_ref = ApplicationServices.AXUIElementCreateApplication(pid)
-    err, focused = ApplicationServices.AXUIElementCopyAttributeValue(
-        app_ref, "AXFocusedUIElement", None
-    )
-    if err == 0 and focused is not None:
-        return focused
-    return app_ref
-
-
-def get_text(element):
-    """读取 UI 元素的文本内容"""
-    if element is None:
-        return None
-    err, value = ApplicationServices.AXUIElementCopyAttributeValue(
-        element, "AXValue", None
-    )
-    if err == 0 and isinstance(value, str):
-        return value
-    return None
-
-
-# ── 模拟按键 ──────────────────────────────────────────────────────
 
 def press_enter():
-    """模拟按下回车键"""
     source = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateHIDSystemState)
-    key_code = 36  # Return 键
-
-    down = Quartz.CGEventCreateKeyboardEvent(source, key_code, True)
-    up = Quartz.CGEventCreateKeyboardEvent(source, key_code, False)
+    down = Quartz.CGEventCreateKeyboardEvent(source, 36, True)
+    up = Quartz.CGEventCreateKeyboardEvent(source, 36, False)
     Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
     Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
 
 
-# ── 通知 ──────────────────────────────────────────────────────────
-
 def notify(text):
-    """发送 macOS 通知中心通知"""
     subprocess.run(
         ["osascript", "-e",
          f'display notification "{text}" with title "Auto Send"'],
@@ -91,68 +54,89 @@ def notify(text):
     )
 
 
-# ── 信号处理 ──────────────────────────────────────────────────────
-
 def toggle_pause(signum, frame):
     global paused
     paused = not paused
     state = "已暂停" if paused else "已恢复"
-    log.info(f"收到 SIGUSR1 → {state}")
+    log.info(f"SIGUSR1 → {state}")
     notify(f"Auto Send {state}")
 
 
-# ── 主逻辑 ────────────────────────────────────────────────────────
+def event_callback(proxy, event_type, event, refcon):
+    global last_ctrl_time, ctrl_was_down, cooldown
 
-def check_once():
-    """单次检测：读取输入框文本，判断是否触发回车"""
-    global last_triggered_text
+    if paused:
+        return event
 
-    text = get_text(get_focused_element())
-    if text is None:
-        return
+    flags = Quartz.CGEventGetFlags(event)
+    ctrl_down = bool(flags & CTRL_FLAG)
 
-    # 冷却中：文本必须变化才允许再次触发
-    if last_triggered_text is not None:
-        if text == last_triggered_text:
-            return
-        last_triggered_text = None
+    # 检测 Ctrl 按下瞬间（状态从 非Ctrl → Ctrl）
+    if ctrl_down and not ctrl_was_down:
+        ctrl_was_down = True
 
-    # 检测末尾
-    if text.rstrip().endswith(TRIGGER_TEXT):
-        log.info(f"检测到末尾「{TRIGGER_TEXT}」→ 自动回车")
-        press_enter()
-        notify("检测到「发送」，已自动回车")
-        last_triggered_text = text
+        if cooldown:
+            cooldown = False
+            return event
+
+        now = time.time()
+        gap = now - last_ctrl_time
+
+        if gap < DOUBLE_TAP_INTERVAL:
+            # 双击！
+            log.info(f"双击 Ctrl (间隔 {gap:.0f}ms) → 自动回车")
+            press_enter()
+            notify("双击 Ctrl → 已发送")
+            last_ctrl_time = 0
+            cooldown = True
+        else:
+            # 第一次按下，记录时间
+            last_ctrl_time = now
+            log.debug(f"Ctrl 按下，等待第二次...")
+
+    # Ctrl 释放
+    if not ctrl_down and ctrl_was_down:
+        ctrl_was_down = False
+        if cooldown:
+            cooldown = False
+
+    return event
 
 
 def main():
-    global paused
-
     signal.signal(signal.SIGUSR1, toggle_pause)
 
-    log.info(f"Auto Send 已启动 (PID={os.getpid()})")
-    log.info(f"触发词：「{TRIGGER_TEXT}」  轮询间隔：{POLL_INTERVAL}s")
-    log.info("kill -USR1 <pid> 可暂停/恢复，Ctrl+C 退出")
-    log.info("请确保终端已授予「辅助功能」和「输入监控」权限")
-    notify("Auto Send 已启动，监听「发送」自动回车")
+    mask = Quartz.CGEventMaskBit(Quartz.kCGEventFlagsChanged)
+    tap = Quartz.CGEventTapCreate(
+        Quartz.kCGSessionEventTap,
+        Quartz.kCGHeadInsertEventTap,
+        Quartz.kCGEventTapOptionListenOnly,  # 纯监听，不拦截
+        mask,
+        event_callback,
+        None,
+    )
+
+    if not tap:
+        log.error("CGEventTap 创建失败！请授予「辅助功能」和「输入监控」权限")
+        sys.exit(1)
+
+    source = Quartz.CFMachPortCreateRunLoopSource(None, tap, 0)
+    Quartz.CFRunLoopAddSource(
+        Quartz.CFRunLoopGetCurrent(), source, Quartz.kCFRunLoopDefaultMode
+    )
+    Quartz.CGEventTapEnable(tap, True)
+
+    log.info(f"已启动 (PID={os.getpid()})")
+    log.info(f"连按两下左 Control → 自动回车 (间隔 {DOUBLE_TAP_INTERVAL}s)")
+    log.info("kill -USR1 <pid> 暂停/恢复，Ctrl+C 退出")
+    notify("Auto Send 已启动，双击 Ctrl 发送")
 
     try:
-        while True:
-            if not paused:
-                try:
-                    check_once()
-                except Exception as e:
-                    log.debug(f"检测异常: {e}")
-            time.sleep(POLL_INTERVAL)
+        Quartz.CFRunLoopRun()
     except KeyboardInterrupt:
         log.info("已退出")
         notify("Auto Send 已停止")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="监听输入框，末尾为「发送」时自动回车")
-    parser.add_argument("--disable", action="store_true", help="直接退出")
-    args = parser.parse_args()
-    if args.disable:
-        sys.exit(0)
     main()
