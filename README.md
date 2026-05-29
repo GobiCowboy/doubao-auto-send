@@ -1,6 +1,6 @@
 # doubao-auto-send
 
-连按两下左 Control 键，自动发送回车。macOS 轻量工具，无依赖安装。
+连按两下左 Control 键，自动发送回车。macOS 轻量工具。
 
 适用场景：豆包输入法语音输入后，快速发送消息（单手操作，不用换手去按回车）。
 
@@ -10,69 +10,73 @@
 Fn 触发豆包语音输入 → 说话 → 松开 → 连按两下左 Control → 自动回车发送
 ```
 
-## 系统要求
+## 下载安装
 
-- macOS 12.0+（Monterey 及以上）
-- Python 3.8+
-- 终端需要「辅助功能」和「输入监控」权限
+### 方式一：直接下载（推荐）
 
-## 安装
+1. 前往 [Releases](https://github.com/jago/doubao-auto-send/releases) 下载 `AutoSend.app`
+2. 拖入 `/Applications` 文件夹
+3. 首次打开需授权辅助功能权限（应用会自动提示）
+
+### 方式二：从源码编译
+
+需要 macOS 13.0+ 和 Xcode Command Line Tools：
 
 ```bash
-# 克隆项目
-git clone <repo-url> doubao-auto-send
-cd doubao-auto-send
+cd Swift
+make install
+```
 
-# 安装依赖
+### 方式三：Python 版
+
+```bash
 pip3 install pyobjc-framework-Quartz pyobjc-framework-ApplicationServices
+python3 auto_send.py
 ```
 
 ## 权限设置
 
 首次运行前，需在 **系统设置 → 隐私与安全性** 中授权：
 
-1. **辅助功能**（Accessibility）→ 勾选你的终端（iTerm2 / Terminal）
-2. **输入监控**（Input Monitoring）→ 勾选你的终端
+1. **辅助功能**（Accessibility）→ 勾选 AutoSend
+2. 重新启动应用
 
-## 使用
+## 功能
 
-```bash
-# 前台运行（有日志输出，Ctrl+C 退出）
-python3 auto_send.py
+- **双击检测**：连按两下左 Control（间隔 300ms 内）自动发送回车
+- **菜单栏常驻**：启用/禁用、开机启动、退出
+- **纯监听模式**：不拦截或修改任何键盘事件，只监听
+- **触发反馈**：触发时菜单栏图标闪绿色
 
-# 后台运行
-nohup python3 auto_send.py > /tmp/auto_send.log 2>&1 &
+## 技术实现
 
-# 暂停/恢复切换
-kill -USR1 $(pgrep -f auto_send.py)
-
-# 停止
-kill $(pgrep -f auto_send.py)
-```
-
-## 开机自启
-
-```bash
-# 安装 LaunchAgent（开机自动启动）
-bash setup.sh install
-
-# 卸载
-bash setup.sh uninstall
-```
-
-安装后重启 Mac 也会自动运行。日志位于 `~/Library/Logs/auto-send/`。
+通过 macOS `CGEventTap` 监听 `flagsChanged` 事件，检测左 Control 键（keyCode 59）的按下-释放-按下序列。两次按下间隔小于 300ms 则判定为双击，通过 `CGEventPost` 模拟回车键（keyCode 36）。
 
 ## 兼容性
 
 | 项目 | 说明 |
 |------|------|
-| macOS 版本 | 12.0+，CGEventTap API 在各版本通用 |
+| macOS 版本 | 13.0+（Swift 版）/ 12.0+（Python 版） |
 | 输入法 | 不限，豆包、搜狗、系统自带均可 |
 | 应用 | 不限，微信、浏览器、飞书、终端等均可使用 |
 | 与其他快捷键冲突 | 左 Control 在 macOS 上极少单独使用，无冲突 |
 
-## 原理
+## 项目结构
 
-通过 macOS CGEventTap 监听 `FlagsChanged` 事件，检测左 Control 键的按下-释放-按下序列。两次按下间隔小于 300ms 则判定为双击，通过 `CGEventPost` 模拟回车键。
+```
+doubao-auto-send/
+├── README.md
+├── auto_send.py          # Python 版（已验证可用）
+├── requirements.txt
+├── setup.sh
+└── Swift/
+    ├── Package.swift
+    ├── Info.plist
+    ├── Makefile
+    ├── Resources/        # 应用图标
+    └── Sources/AutoSend/ # Swift 原生版本
+```
 
-纯监听模式，不拦截或修改任何键盘事件。
+## License
+
+MIT
