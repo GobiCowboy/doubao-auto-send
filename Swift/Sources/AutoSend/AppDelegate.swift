@@ -73,10 +73,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateStatusIcon(triggered: Bool) {
         guard let button = statusItem.button else { return }
         let name = triggered ? "paperplane.fill" : "paperplane"
-        let img = NSImage(systemSymbolName: name, accessibilityDescription: "AutoSend")
-        button.image = img
-        button.image?.isTemplate = false
-        button.contentTintColor = triggered ? .systemGreen : .white
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        guard let img = NSImage(systemSymbolName: name, accessibilityDescription: "AutoSend")?
+            .withSymbolConfiguration(symbolConfig) else { return }
+
+        // 渲染为白色位图，确保菜单栏始终白色
+        let tinted = img.copy() as! NSImage
+        tinted.lockFocus()
+        NSColor.white.set()
+        NSRect(origin: .zero, size: tinted.size).fill(using: .sourceAtop)
+        tinted.unlockFocus()
+        tinted.isTemplate = false
+
+        button.image = tinted
+        button.contentTintColor = triggered ? .systemGreen : nil
     }
 
     // MARK: - Actions
