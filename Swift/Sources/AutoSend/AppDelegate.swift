@@ -74,8 +74,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem.button else { return }
         let name = triggered ? "paperplane.fill" : "paperplane"
         let img = NSImage(systemSymbolName: name, accessibilityDescription: "AutoSend")
-        img?.isTemplate = true
         button.image = img
+        button.image?.isTemplate = !triggered
         button.contentTintColor = triggered ? .systemGreen : nil
     }
 
