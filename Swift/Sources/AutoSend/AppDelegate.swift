@@ -75,8 +75,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let name = triggered ? "paperplane.fill" : "paperplane"
         let img = NSImage(systemSymbolName: name, accessibilityDescription: "AutoSend")
         button.image = img
-        button.image?.isTemplate = !triggered
-        button.contentTintColor = triggered ? .systemGreen : nil
+        button.image?.isTemplate = false
+        button.contentTintColor = triggered ? .systemGreen : .white
     }
 
     // MARK: - Actions
