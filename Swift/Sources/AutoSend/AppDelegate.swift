@@ -73,16 +73,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateStatusIcon(triggered: Bool) {
         guard let button = statusItem.button else { return }
         let name = triggered ? "paperplane.fill" : "paperplane"
-        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
         guard let img = NSImage(systemSymbolName: name, accessibilityDescription: "AutoSend")?
             .withSymbolConfiguration(symbolConfig) else { return }
 
-        // 渲染为白色位图，确保菜单栏始终白色
-        let tinted = img.copy() as! NSImage
-        tinted.lockFocus()
-        NSColor.white.set()
-        NSRect(origin: .zero, size: tinted.size).fill(using: .sourceAtop)
-        tinted.unlockFocus()
+        // 固定尺寸 18x18，与其他菜单栏图标对齐
+        let targetSize = NSSize(width: 18, height: 18)
+        let tinted = NSImage(size: targetSize, flipped: false) { rect in
+            img.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+            NSColor.white.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
         tinted.isTemplate = false
 
         button.image = tinted
