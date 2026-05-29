@@ -72,7 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateStatusIcon(triggered: Bool) {
         guard let button = statusItem.button else { return }
-        let name = triggered ? "return" : "command"
+        let name = triggered ? "paperplane.fill" : "paperplane"
         button.image = NSImage(systemSymbolName: name, accessibilityDescription: "AutoSend")
         button.contentTintColor = triggered ? .systemGreen : .controlAccentColor
     }
