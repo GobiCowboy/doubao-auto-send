@@ -1,80 +1,88 @@
 # doubao-auto-send
 
-连按两下左 Control 键，自动发送回车。macOS 轻量工具。
+<p align="center">
+  <a href="README.zh.md">中文</a> | <b>English</b>
+</p>
 
-适用场景：豆包输入法语音输入后，快速发送消息（单手操作，不用换手去按回车）。
+> Double-tap Left Control to auto-send Enter. A lightweight macOS utility.
 
-## 工作流程
+## Why?
+
+When using voice input (e.g. Doubao/Sogou IME), you finish speaking and want to send the message — but your hand has moved away from the keyboard. Now you need to reach for Enter.
+
+This tool lets you **double-tap Left Control** to send Enter instantly. One-hand operation, no hand movement needed.
+
+## How It Works
 
 ```
-Fn 触发豆包语音输入 → 说话 → 松开 → 连按两下左 Control → 自动回车发送
+Fn trigger voice input → speak → release → double-tap Left Control → message sent
 ```
 
-## 下载安装
+## Installation
 
-### 方式一：直接下载（推荐）
+### Option 1: Download (Recommended)
 
-1. 前往 [Releases](https://github.com/GobiCowboy/doubao-auto-send/releases) 下载 `AutoSend.app`
-2. 拖入 `/Applications` 文件夹
-3. 首次打开需授权辅助功能权限（应用会自动提示）
+1. Go to [Releases](https://github.com/GobiCowboy/doubao-auto-send/releases) and download `AutoSend.app`
+2. Drag it to `/Applications`
+3. Grant Accessibility permission when prompted
 
-### 方式二：从源码编译
+### Option 2: Build from Source
 
-需要 macOS 13.0+ 和 Xcode Command Line Tools：
+Requires macOS 13.0+ and Xcode Command Line Tools:
 
 ```bash
 cd Swift
 make install
 ```
 
-### 方式三：Python 版
+### Option 3: Python Version
 
 ```bash
 pip3 install pyobjc-framework-Quartz pyobjc-framework-ApplicationServices
 python3 auto_send.py
 ```
 
-## 权限设置
+## Permissions
 
-首次运行前，需在 **系统设置 → 隐私与安全性** 中授权：
+Before first run, grant access in **System Settings → Privacy & Security**:
 
-1. **辅助功能**（Accessibility）→ 勾选 AutoSend
-2. 重新启动应用
+1. **Accessibility** — check AutoSend
+2. Restart the app
 
-## 功能
+## Features
 
-- **双击检测**：连按两下左 Control（间隔 300ms 内）自动发送回车
-- **菜单栏常驻**：启用/禁用、开机启动、退出
-- **纯监听模式**：不拦截或修改任何键盘事件，只监听
-- **触发反馈**：触发时菜单栏图标闪绿色
+- **Double-tap detection**: Two quick Left Control taps (within 300ms) trigger Enter
+- **Menu bar resident**: Enable/disable, launch at login, quit
+- **Listen-only mode**: Does not intercept or modify any keyboard events
+- **Visual feedback**: Menu bar icon flashes green on trigger
 
-## 技术实现
+## Compatibility
 
-通过 macOS `CGEventTap` 监听 `flagsChanged` 事件，检测左 Control 键（keyCode 59）的按下-释放-按下序列。两次按下间隔小于 300ms 则判定为双击，通过 `CGEventPost` 模拟回车键（keyCode 36）。
+| Item | Details |
+|------|---------|
+| macOS | 13.0+ (Swift) / 12.0+ (Python) |
+| Input method | Any — Doubao, Sogou, built-in, etc. |
+| Apps | Any — WeChat, browser, Slack, Terminal, etc. |
+| Shortcut conflicts | Left Control is rarely used alone on macOS, no conflicts |
 
-## 兼容性
+## Technical Details
 
-| 项目 | 说明 |
-|------|------|
-| macOS 版本 | 13.0+（Swift 版）/ 12.0+（Python 版） |
-| 输入法 | 不限，豆包、搜狗、系统自带均可 |
-| 应用 | 不限，微信、浏览器、飞书、终端等均可使用 |
-| 与其他快捷键冲突 | 左 Control 在 macOS 上极少单独使用，无冲突 |
+Uses macOS `CGEventTap` to listen for `flagsChanged` events, detecting the Left Control key (keyCode 59) down-up-down sequence. If two presses occur within 300ms, it simulates an Enter keypress (keyCode 36) via `CGEventPost`.
 
-## 项目结构
+## Project Structure
 
 ```
 doubao-auto-send/
 ├── README.md
-├── auto_send.py          # Python 版（已验证可用）
+├── auto_send.py          # Python version
 ├── requirements.txt
 ├── setup.sh
 └── Swift/
     ├── Package.swift
     ├── Info.plist
     ├── Makefile
-    ├── Resources/        # 应用图标
-    └── Sources/AutoSend/ # Swift 原生版本
+    ├── Resources/        # App icon
+    └── Sources/AutoSend/ # Native Swift version
 ```
 
 ## License
