@@ -5,6 +5,7 @@ final class KeyMonitor {
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private(set) var isRunning = false
     private var lastTapTime: TimeInterval = 0
     private var ctrlWasDown = false
     private var cooldown = false
@@ -15,12 +16,16 @@ final class KeyMonitor {
     // MARK: - Public
 
     func start() -> Bool {
+        if isRunning {
+            return true
+        }
+
         let mask = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .defaultTap,
+            options: .listenOnly,
             eventsOfInterest: mask,
             callback: { _, type, event, refcon -> Unmanaged<CGEvent>? in
                 guard let refcon else { return Unmanaged.passRetained(event) }
@@ -29,6 +34,7 @@ final class KeyMonitor {
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
+            NSLog("[AutoSend] Failed to create event tap")
             return false
         }
 
@@ -37,6 +43,7 @@ final class KeyMonitor {
         runLoopSource = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+        isRunning = true
         return true
     }
 
@@ -49,6 +56,7 @@ final class KeyMonitor {
         }
         runLoopSource = nil
         eventTap = nil
+        isRunning = false
     }
 
     // MARK: - Private

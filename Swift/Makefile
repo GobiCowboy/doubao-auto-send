@@ -2,7 +2,7 @@ APP_NAME := AutoSend
 APP_BUNDLE := $(APP_NAME).app
 BUILD_DIR := $(shell swift build -c release --show-bin-path 2>/dev/null || echo .build/release)
 
-.PHONY: build clean install run
+.PHONY: build clean install run release
 
 build:
 	swift build -c release
@@ -25,5 +25,8 @@ clean:
 
 install: build
 	rm -rf /Applications/$(APP_BUNDLE)
-	cp -r $(APP_BUNDLE) /Applications/
+	ditto $(APP_BUNDLE) /Applications/$(APP_BUNDLE)
 	@echo "✅ Installed to /Applications/$(APP_BUNDLE)"
+
+release:
+	cd .. && SIGNING_IDENTITY="$$SIGNING_IDENTITY" NOTARY_PROFILE="$$NOTARY_PROFILE" ./scripts/release_arm64.sh

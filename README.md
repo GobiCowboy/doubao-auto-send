@@ -23,8 +23,8 @@ Fn trigger voice input → speak → release → double-tap Left Control → mes
 ### Option 1: Download (Recommended)
 
 1. Go to [Releases](https://github.com/GobiCowboy/doubao-auto-send/releases) and download `AutoSend.app`
-2. Drag it to `/Applications`
-3. Grant Accessibility permission when prompted
+2. Drag it to `/Applications`, or use the release package that installs it there for you
+3. Open the settings page after first launch to choose language, launch-at-login, and permissions
 
 ### Option 2: Build from Source
 
@@ -47,12 +47,14 @@ python3 auto_send.py
 Before first run, grant access in **System Settings → Privacy & Security**:
 
 1. **Accessibility** — check AutoSend
-2. Restart the app
+2. **Input Monitoring** — check AutoSend
+3. Restart the app if needed
 
 ## Features
 
 - **Double-tap detection**: Two quick Left Control taps (within 300ms) trigger Enter
-- **Menu bar resident**: Enable/disable, launch at login, quit
+- **Menu bar resident**: Status item keeps only the minimal actions
+- **Separate settings page**: Language, launch at login, and permissions live in one dedicated window
 - **Listen-only mode**: Does not intercept or modify any keyboard events
 - **Visual feedback**: Menu bar icon flashes green on trigger
 
@@ -68,6 +70,16 @@ Before first run, grant access in **System Settings → Privacy & Security**:
 ## Technical Details
 
 Uses macOS `CGEventTap` to listen for `flagsChanged` events, detecting the Left Control key (keyCode 59) down-up-down sequence. If two presses occur within 300ms, it simulates an Enter keypress (keyCode 36) via `CGEventPost`.
+
+## Release
+
+For distribution outside your own Mac, use Developer ID signing + notarization + stapling. Example:
+
+```bash
+SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+NOTARY_PROFILE=Apple-Notary \
+./scripts/release_arm64.sh
+```
 
 ## Project Structure
 
