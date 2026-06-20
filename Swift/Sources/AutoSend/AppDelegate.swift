@@ -1,7 +1,7 @@
 import AppKit
 import ServiceManagement
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private let permissionManager = PermissionManager()
     private let keyMonitor = KeyMonitor()
     private let state = AppState.shared
@@ -85,49 +85,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         updateStatusIcon(triggered: false)
 
-        let menu = NSMenu()
-        menu.delegate = self
-
-        let settingsItem = NSMenuItem(title: L10n.text("settingsMenu"), action: #selector(openSettingsMenuItem), keyEquivalent: ",")
-        settingsItem.target = self
-        menu.addItem(settingsItem)
-
-        menu.addItem(.separator())
-
-        enableMenuItem = NSMenuItem(title: L10n.text("enabled"), action: #selector(toggleEnabled), keyEquivalent: "")
-        enableMenuItem.target = self
-        enableMenuItem.state = .on
-        menu.addItem(enableMenuItem)
-
-        menu.addItem(.separator())
-
-        let quitItem = NSMenuItem(title: L10n.text("quit"), action: #selector(quit), keyEquivalent: "q")
-        quitItem.target = self
-        menu.addItem(quitItem)
-
-        statusItem.menu = menu
-    }
-
-    private func refreshStatusMenuTitles() {
-        statusItem.menu?.items.first?.title = L10n.text("settingsMenu")
-        enableMenuItem.title = L10n.text("enabled")
-        if let quitItem = statusItem.menu?.items.last {
-            quitItem.title = L10n.text("quit")
-        }
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(openSettingsMenuItem)
+        statusItem.button?.sendAction(on: [.leftMouseUp])
+        statusItem.button?.appearsDisabled = false
+        statusItem.button?.imagePosition = .imageOnly
     }
 
     private func updateStatusIcon(triggered: Bool) {
         guard let button = statusItem.button else { return }
-        let name = triggered ? "paperplane.fill" : "paperplane"
-        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: L10n.text("appName"))?
-            .withSymbolConfiguration(symbolConfig) else {
+        guard let image = AppIconProvider.statusBarIcon(triggered: triggered) else {
             return
         }
 
-        image.isTemplate = true
         button.image = image
-        button.contentTintColor = triggered ? .systemGreen : .labelColor
+        button.imagePosition = .imageOnly
+        button.contentTintColor = nil
     }
 
     // MARK: - Actions
@@ -156,7 +129,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             onOpenAccessibilitySettings: { [weak self] in self?.openAccessibilitySettings() },
             onOpenInputMonitoringSettings: { [weak self] in self?.openInputMonitoringSettings() },
             onRecheck: { [weak self] in self?.refreshMonitoringState() },
-            onRestartApp: { [weak self] in self?.restartApp() }
+            onRestartApp: { [weak self] in self?.restartApp() },
+            onQuitApp: { [weak self] in self?.quit() }
         )
     }
 
@@ -169,7 +143,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func refreshLocalizedContent() {
-        refreshStatusMenuTitles()
         settingsWindowController?.refreshLocalizedContent()
         settingsWindowController?.refreshLaunchAtLoginState()
         settingsWindowController?.refreshWorkflowState(restartRequired: restartRequired)
@@ -253,7 +226,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.runModal()
     }
 
-    func menuWillOpen(_ menu: NSMenu) {
-        refreshLocalizedContent()
-    }
 }

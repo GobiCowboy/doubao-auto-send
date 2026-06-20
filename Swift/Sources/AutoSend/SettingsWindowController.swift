@@ -14,8 +14,10 @@ final class SettingsWindowController: NSWindowController {
     private let onOpenInputMonitoringSettings: () -> Void
     private let onRecheck: () -> Void
     private let onRestartApp: () -> Void
+    private let onQuitApp: () -> Void
     private var currentRestartRequired = false
 
+    private let headerIconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
     private let guideSectionLabel = NSTextField(labelWithString: "")
@@ -41,6 +43,20 @@ final class SettingsWindowController: NSWindowController {
     private let openAccessibilityButton = NSButton(title: "", target: nil, action: nil)
     private let openInputMonitoringButton = NSButton(title: "", target: nil, action: nil)
     private let recheckButton = NSButton(title: "", target: nil, action: nil)
+    private let generalCardView = NSView()
+    private let permissionsCardView = NSView()
+
+    private let aboutSectionLabel = NSTextField(labelWithString: "")
+    private let aboutVersionTitleLabel = NSTextField(labelWithString: "")
+    private let aboutVersionValueLabel = NSTextField(labelWithString: "")
+    private let aboutStatusLabel = NSTextField(labelWithString: "")
+    private let openProjectButton = NSButton(title: "", target: nil, action: nil)
+    private let openIssueButton = NSButton(title: "", target: nil, action: nil)
+    private let checkUpdatesButton = NSButton(title: "", target: nil, action: nil)
+    private let aboutCardView = NSView()
+    private let advancedSectionLabel = NSTextField(labelWithString: "")
+    private let quitButton = NSButton(title: "", target: nil, action: nil)
+    private let advancedCardView = NSView()
 
     init(
         permissionManager: PermissionManager,
@@ -49,7 +65,8 @@ final class SettingsWindowController: NSWindowController {
         onOpenAccessibilitySettings: @escaping () -> Void,
         onOpenInputMonitoringSettings: @escaping () -> Void,
         onRecheck: @escaping () -> Void,
-        onRestartApp: @escaping () -> Void
+        onRestartApp: @escaping () -> Void,
+        onQuitApp: @escaping () -> Void
     ) {
         self.permissionManager = permissionManager
         self.onLanguageChanged = onLanguageChanged
@@ -58,6 +75,7 @@ final class SettingsWindowController: NSWindowController {
         self.onOpenInputMonitoringSettings = onOpenInputMonitoringSettings
         self.onRecheck = onRecheck
         self.onRestartApp = onRestartApp
+        self.onQuitApp = onQuitApp
 
         let contentViewController = NSViewController()
         super.init(window: NSWindow(contentViewController: contentViewController))
@@ -84,6 +102,8 @@ final class SettingsWindowController: NSWindowController {
         languageLabel.stringValue = L10n.text("language")
         launchAtLoginCheckbox.title = L10n.text("launchAtLogin")
         permissionsSectionLabel.stringValue = L10n.text("permissionsSection")
+        aboutSectionLabel.stringValue = L10n.text("aboutSection")
+        advancedSectionLabel.stringValue = L10n.text("advancedSection")
         accessibilityTitleLabel.stringValue = L10n.text("accessibility")
         accessibilityDetailLabel.stringValue = L10n.text("accessibilityDetail")
         inputMonitoringTitleLabel.stringValue = L10n.text("inputMonitoring")
@@ -92,6 +112,13 @@ final class SettingsWindowController: NSWindowController {
         openAccessibilityButton.title = L10n.text("openAccessibilitySettings")
         openInputMonitoringButton.title = L10n.text("openInputMonitoringSettings")
         recheckButton.title = L10n.text("recheckPermissions")
+        aboutVersionTitleLabel.stringValue = L10n.text("aboutVersion")
+        aboutVersionValueLabel.stringValue = currentVersionString()
+        aboutStatusLabel.stringValue = ""
+        openProjectButton.title = L10n.text("aboutProject")
+        openIssueButton.title = L10n.text("aboutIssue")
+        checkUpdatesButton.title = L10n.text("aboutCheckUpdates")
+        quitButton.title = L10n.text("quit")
 
         let selectedLanguage = AppState.shared.preferredLanguage
         languagePopup.removeAllItems()
@@ -207,25 +234,25 @@ final class SettingsWindowController: NSWindowController {
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
         window.center()
-        window.setContentSize(NSSize(width: 560, height: 460))
-        window.minSize = NSSize(width: 560, height: 460)
+        window.setContentSize(NSSize(width: 620, height: 680))
+        window.minSize = NSSize(width: 620, height: 640)
         window.isMovableByWindowBackground = true
     }
 
     private func makeContentView() -> NSView {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 460))
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 620, height: 680))
+        scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = false
+        scrollView.autohidesScrollers = true
+
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 620, height: 1100))
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.documentView = contentView
 
         titleLabel.font = .systemFont(ofSize: 22, weight: .semibold)
         subtitleLabel.textColor = .secondaryLabelColor
         subtitleLabel.font = .systemFont(ofSize: 13, weight: .regular)
         subtitleLabel.maximumNumberOfLines = 2
-
-        guideCardView.wantsLayer = true
-        guideCardView.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        guideCardView.layer?.cornerRadius = 12
-        guideCardView.layer?.borderWidth = 1
-        guideCardView.layer?.borderColor = NSColor.separatorColor.cgColor
-        guideCardView.translatesAutoresizingMaskIntoConstraints = false
 
         guideTitleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         guideDetailLabel.font = .systemFont(ofSize: 12, weight: .regular)
@@ -252,18 +279,22 @@ final class SettingsWindowController: NSWindowController {
         guideStack.alignment = .leading
         guideStack.spacing = 12
         guideStack.translatesAutoresizingMaskIntoConstraints = false
-        guideCardView.addSubview(guideStack)
+        configureCardContainer(guideCardView, content: guideStack)
+
+        headerIconView.image = AppIconProvider.appIcon()
+        headerIconView.imageScaling = .scaleProportionallyDown
+        headerIconView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            guideStack.leadingAnchor.constraint(equalTo: guideCardView.leadingAnchor, constant: 18),
-            guideStack.trailingAnchor.constraint(equalTo: guideCardView.trailingAnchor, constant: -18),
-            guideStack.topAnchor.constraint(equalTo: guideCardView.topAnchor, constant: 16),
-            guideStack.bottomAnchor.constraint(equalTo: guideCardView.bottomAnchor, constant: -16),
+            headerIconView.widthAnchor.constraint(equalToConstant: 44),
+            headerIconView.heightAnchor.constraint(equalToConstant: 44),
         ])
 
-        [guideSectionLabel, generalSectionLabel, permissionsSectionLabel].forEach {
+        [guideSectionLabel, generalSectionLabel, permissionsSectionLabel, aboutSectionLabel, advancedSectionLabel].forEach {
             $0.font = .systemFont(ofSize: 12, weight: .semibold)
             $0.textColor = .secondaryLabelColor
         }
+
+        advancedSectionLabel.isHidden = false
 
         [languageLabel, accessibilityTitleLabel, inputMonitoringTitleLabel].forEach {
             $0.font = .systemFont(ofSize: 13, weight: .medium)
@@ -293,6 +324,26 @@ final class SettingsWindowController: NSWindowController {
         openInputMonitoringButton.action = #selector(openInputMonitoring)
         recheckButton.target = self
         recheckButton.action = #selector(recheckPermissions)
+        openProjectButton.target = self
+        openProjectButton.action = #selector(openProject)
+        openIssueButton.target = self
+        openIssueButton.action = #selector(openIssue)
+        checkUpdatesButton.target = self
+        checkUpdatesButton.action = #selector(checkForUpdates)
+        quitButton.target = self
+        quitButton.action = #selector(quitApp)
+
+        [openProjectButton, openIssueButton, checkUpdatesButton, quitButton].forEach {
+            $0.bezelStyle = .inline
+            $0.isBordered = false
+            $0.imagePosition = .imageLeading
+            $0.contentTintColor = .labelColor
+            $0.alignment = .left
+        }
+        openProjectButton.image = NSImage(systemSymbolName: "link", accessibilityDescription: nil)
+        openIssueButton.image = NSImage(systemSymbolName: "exclamationmark.bubble", accessibilityDescription: nil)
+        checkUpdatesButton.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
+        quitButton.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
 
         let languageRow = labeledRow(label: languageLabel, control: languagePopup)
         let launchRow = NSStackView(views: [launchAtLoginCheckbox])
@@ -303,6 +354,7 @@ final class SettingsWindowController: NSWindowController {
         generalStack.orientation = .vertical
         generalStack.alignment = .leading
         generalStack.spacing = 10
+        configureCardContainer(generalCardView, content: generalStack)
 
         let accessibilityRow = statusRow(title: accessibilityTitleLabel, state: accessibilityStateLabel)
         let inputMonitoringRow = statusRow(title: inputMonitoringTitleLabel, state: inputMonitoringStateLabel)
@@ -320,53 +372,138 @@ final class SettingsWindowController: NSWindowController {
         permissionsStack.orientation = .vertical
         permissionsStack.alignment = .leading
         permissionsStack.spacing = 8
+        configureCardContainer(permissionsCardView, content: permissionsStack)
+
+        let aboutVersionRow = statusRow(title: aboutVersionTitleLabel, state: aboutVersionValueLabel)
+        aboutVersionValueLabel.textColor = .secondaryLabelColor
+        aboutStatusLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        aboutStatusLabel.textColor = .secondaryLabelColor
+        aboutStatusLabel.maximumNumberOfLines = 0
+
+        let aboutStack = NSStackView(views: [
+            aboutVersionRow,
+            openProjectButton,
+            openIssueButton,
+            checkUpdatesButton,
+            aboutStatusLabel,
+        ])
+        aboutStack.orientation = .vertical
+        aboutStack.alignment = .leading
+        aboutStack.spacing = 8
+        configureCardContainer(aboutCardView, content: aboutStack)
+
+        let quitStack = NSStackView(views: [quitButton])
+        quitStack.orientation = .vertical
+        quitStack.alignment = .leading
+        configureCardContainer(advancedCardView, content: quitStack)
+
+        let titleStack = NSStackView(views: [titleLabel, subtitleLabel])
+        titleStack.orientation = .vertical
+        titleStack.alignment = .leading
+        titleStack.spacing = 3
+
+        let headerStack = NSStackView(views: [headerIconView, titleStack])
+        headerStack.orientation = .horizontal
+        headerStack.alignment = .centerY
+        headerStack.spacing = 12
 
         let rootStack = NSStackView(views: [
-            titleLabel,
-            subtitleLabel,
+            headerStack,
             guideSectionLabel,
             guideCardView,
             generalSectionLabel,
-            generalStack,
+            generalCardView,
             permissionsSectionLabel,
-            permissionsStack,
+            permissionsCardView,
+            aboutSectionLabel,
+            aboutCardView,
+            advancedSectionLabel,
+            advancedCardView,
         ])
         rootStack.orientation = .vertical
-        rootStack.alignment = .leading
-        rootStack.spacing = 14
+        rootStack.alignment = .width
+        rootStack.spacing = 18
         rootStack.translatesAutoresizingMaskIntoConstraints = false
+        rootStack.setHuggingPriority(.defaultLow, for: .horizontal)
 
-        view.addSubview(rootStack)
+        contentView.addSubview(rootStack)
         NSLayoutConstraint.activate([
-            rootStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
-            rootStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
-            rootStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 24),
-            rootStack.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor, constant: -24),
+            contentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            rootStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
+            rootStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
+            rootStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 24),
+            rootStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -24),
         ])
 
-        return view
+        return scrollView
     }
 
     private func labeledRow(label: NSTextField, control: NSControl) -> NSStackView {
-        let row = NSStackView(views: [label, control])
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let row = NSStackView(views: [label, spacer, control])
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.distribution = .equalSpacing
+        row.distribution = .fill
         row.spacing = 12
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        control.setContentHuggingPriority(.required, for: .horizontal)
+        control.setContentCompressionResistancePriority(.required, for: .horizontal)
         return row
     }
 
     private func statusRow(title: NSTextField, state: NSTextField) -> NSStackView {
-        let row = NSStackView(views: [title, state])
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let row = NSStackView(views: [title, spacer, state])
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.distribution = .equalSpacing
+        row.distribution = .fill
         row.spacing = 12
+        title.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        state.setContentHuggingPriority(.required, for: .horizontal)
+        state.setContentCompressionResistancePriority(.required, for: .horizontal)
         return row
+    }
+
+    private func configureCardContainer(_ container: NSView, content: NSView) {
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        container.layer?.cornerRadius = 12
+        container.layer?.borderWidth = 1
+        container.layer?.borderColor = NSColor.separatorColor.cgColor
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let paddedContent = NSView()
+        paddedContent.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(paddedContent)
+        paddedContent.addSubview(content)
+
+        NSLayoutConstraint.activate([
+            paddedContent.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            paddedContent.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            paddedContent.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            paddedContent.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+
+            content.leadingAnchor.constraint(equalTo: paddedContent.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: paddedContent.trailingAnchor),
+            content.topAnchor.constraint(equalTo: paddedContent.topAnchor),
+            content.bottomAnchor.constraint(equalTo: paddedContent.bottomAnchor),
+        ])
     }
 
     private func permissionStateText(granted: Bool, grantedText: String, missingText: String) -> String {
         granted ? grantedText : missingText
+    }
+
+    private func currentVersionString() -> String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
     }
 
     private func attributedGuideDetail(text: String, highlight: String?) -> NSAttributedString {
@@ -436,5 +573,81 @@ final class SettingsWindowController: NSWindowController {
 
     @objc private func restartApp() {
         onRestartApp()
+    }
+
+    @objc private func quitApp() {
+        onQuitApp()
+    }
+
+    @objc private func openProject() {
+        openURL("https://github.com/GobiCowboy/doubao-auto-send")
+    }
+
+    @objc private func openIssue() {
+        openURL("https://github.com/GobiCowboy/doubao-auto-send/issues")
+    }
+
+    @objc private func checkForUpdates() {
+        aboutStatusLabel.stringValue = L10n.text("aboutCheckingUpdates")
+
+        guard let url = URL(string: "https://api.github.com/repos/GobiCowboy/doubao-auto-send/releases/latest") else {
+            aboutStatusLabel.stringValue = L10n.text("aboutUpToDate")
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("AutoSend", forHTTPHeaderField: "User-Agent")
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+
+                guard error == nil, let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let tagName = json["tag_name"] as? String else {
+                    self.aboutStatusLabel.stringValue = L10n.text("aboutUpdateFailed")
+                    return
+                }
+
+                let remoteVersion = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
+                let currentVersion = self.currentVersionString()
+
+                if self.isNewerVersion(remoteVersion, than: currentVersion) {
+                    self.aboutStatusLabel.stringValue = String(format: L10n.text("aboutUpdateAvailable"), remoteVersion)
+                    self.presentUpdateAvailableAlert(version: remoteVersion)
+                } else {
+                    self.aboutStatusLabel.stringValue = L10n.text("aboutUpToDate")
+                }
+            }
+        }.resume()
+    }
+
+    private func presentUpdateAvailableAlert(version: String) {
+        let alert = NSAlert()
+        alert.messageText = String(format: L10n.text("aboutUpdateAvailable"), version)
+        alert.informativeText = L10n.text("aboutCheckingUpdates")
+        alert.addButton(withTitle: L10n.text("aboutOpenReleases"))
+        alert.addButton(withTitle: L10n.text("ok"))
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            openURL("https://github.com/GobiCowboy/doubao-auto-send/releases/latest")
+        }
+    }
+
+    private func isNewerVersion(_ remote: String, than current: String) -> Bool {
+        let remoteParts = remote.split(separator: ".").compactMap { Int($0) }
+        let currentParts = current.split(separator: ".").compactMap { Int($0) }
+        let count = max(remoteParts.count, currentParts.count)
+        for index in 0..<count {
+            let remotePart = index < remoteParts.count ? remoteParts[index] : 0
+            let currentPart = index < currentParts.count ? currentParts[index] : 0
+            if remotePart > currentPart { return true }
+            if remotePart < currentPart { return false }
+        }
+        return false
+    }
+
+    private func openURL(_ string: String) {
+        guard let url = URL(string: string) else { return }
+        NSWorkspace.shared.open(url)
     }
 }
