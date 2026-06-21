@@ -35,6 +35,8 @@ cd Swift
 make install
 ```
 
+这个命令会生成适合本机测试的本地签名包。如果要正式分发，请使用下面的发布脚本。
+
 ### 方式三：Python 版
 
 ```bash
@@ -78,7 +80,7 @@ python3 auto_send.py
 
 ## 发布
 
-如果要给别人直接打开，请使用 Developer ID 签名 + notarization + stapling，而不是只用本地 ad-hoc 签名。示例：
+如果要给别人直接打开，请使用 Developer ID 签名 + notarization + stapling，而不是只用本地 ad-hoc 签名。发布脚本会完成签名、提交 Apple 公证、staple 票据、校验结果，并把最终包安装到 `/Applications`。示例：
 
 ```bash
 SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \

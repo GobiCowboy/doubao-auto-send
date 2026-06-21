@@ -35,6 +35,8 @@ cd Swift
 make install
 ```
 
+This produces a local signed bundle for your own machine. For distribution, use the release script below.
+
 ### Option 3: Python Version
 
 ```bash
@@ -73,7 +75,7 @@ Uses macOS `CGEventTap` to listen for `flagsChanged` events, detecting the Left 
 
 ## Release
 
-For distribution outside your own Mac, use Developer ID signing + notarization + stapling. Example:
+For distribution outside your own Mac, use Developer ID signing + notarization + stapling. The release script signs the app, submits it to Apple, staples the ticket, verifies the result, and installs the final bundle to `/Applications`.
 
 ```bash
 SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \

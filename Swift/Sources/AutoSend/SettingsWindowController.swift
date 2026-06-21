@@ -1,7 +1,49 @@
 import AppKit
 import ServiceManagement
 
+private final class SettingsBackgroundView: NSView {
+    var onEffectiveAppearanceChange: (() -> Void)?
+
+    override var isFlipped: Bool { true }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        onEffectiveAppearanceChange?()
+    }
+}
+
 final class SettingsWindowController: NSWindowController {
+    private enum Metrics {
+        static let contentWidth: CGFloat = 760
+        static let horizontalInset: CGFloat = 28
+    }
+
+    private enum Palette {
+        static func pageBackground(isDark: Bool) -> NSColor {
+            isDark ? NSColor(calibratedWhite: 0.12, alpha: 1.0) : NSColor(calibratedWhite: 0.97, alpha: 1.0)
+        }
+
+        static func cardBackground(isDark: Bool) -> NSColor {
+            isDark ? NSColor(calibratedWhite: 0.16, alpha: 1.0) : NSColor.white
+        }
+
+        static func cardBorder(isDark: Bool) -> NSColor {
+            isDark ? NSColor(calibratedWhite: 0.32, alpha: 1.0) : NSColor(calibratedWhite: 0.84, alpha: 1.0)
+        }
+
+        static func divider(isDark: Bool) -> NSColor {
+            isDark ? NSColor(calibratedWhite: 1.0, alpha: 0.10) : NSColor(calibratedWhite: 0.0, alpha: 0.08)
+        }
+
+        static func guideBorder(isDark: Bool) -> NSColor {
+            isDark ? NSColor.systemBlue.withAlphaComponent(0.30) : NSColor.systemBlue.withAlphaComponent(0.24)
+        }
+
+        static func destructiveBorder(isDark: Bool) -> NSColor {
+            isDark ? NSColor.systemRed.withAlphaComponent(0.28) : NSColor.systemRed.withAlphaComponent(0.22)
+        }
+    }
+
     private let permissionManager: PermissionManager
     private let onLanguageChanged: () -> Void
     private let onToggleLaunchAtLogin: () -> Void
@@ -11,18 +53,25 @@ final class SettingsWindowController: NSWindowController {
     private let onRecheck: () -> Void
     private let onRestartApp: () -> Void
     private let onQuitApp: () -> Void
+
+    private let windowSize = NSSize(width: 900, height: 860)
     private var currentRestartRequired = false
 
     private let headerIconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
     private let closeButton = NSButton(title: "", target: nil, action: nil)
+
     private let guideSectionLabel = NSTextField(labelWithString: "")
     private var guideSectionHeaderRow = NSStackView()
     private let guideCardView = NSView()
     private let guideTitleLabel = NSTextField(labelWithString: "")
     private let guideDetailLabel = NSTextField(labelWithString: "")
     private let guideActionButton = NSButton(title: "", target: nil, action: nil)
+    private let guideStepTwoCardView = NSView()
+    private let guideStepTwoTitleLabel = NSTextField(labelWithString: "")
+    private let guideStepTwoDetailLabel = NSTextField(labelWithString: "")
+    private let guideStepTwoButton = NSButton(title: "", target: nil, action: nil)
 
     private let generalSectionLabel = NSTextField(labelWithString: "")
     private let languageLabel = NSTextField(labelWithString: "")
@@ -58,12 +107,17 @@ final class SettingsWindowController: NSWindowController {
     private let updateTitleLabel = NSTextField(labelWithString: "")
     private let updateDetailLabel = NSTextField(labelWithString: "")
     private let updateCardView = NSView()
+
     private let advancedSectionLabel = NSTextField(labelWithString: "")
     private let quitTitleLabel = NSTextField(labelWithString: "")
     private let quitDetailLabel = NSTextField(labelWithString: "")
     private let quitButton = NSButton(title: "", target: nil, action: nil)
     private let advancedCardView = NSView()
     private var isGuidePulseActive = false
+    private var themeDividerViews: [NSView] = []
+    private var themeAccentViews: [NSView] = []
+    private weak var settingsScrollView: NSScrollView?
+    private weak var settingsBackgroundView: SettingsBackgroundView?
 
     init(
         permissionManager: PermissionManager,
@@ -91,6 +145,7 @@ final class SettingsWindowController: NSWindowController {
 
         configureWindow()
         contentViewController.view = makeContentView()
+        applyThemeColors()
         refreshLocalizedContent()
         refreshLaunchAtLoginState()
         refreshMenuBarIconState()
@@ -102,6 +157,10 @@ final class SettingsWindowController: NSWindowController {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     func refreshLocalizedContent() {
         window?.title = L10n.text("settingsTitle")
 
@@ -111,7 +170,7 @@ final class SettingsWindowController: NSWindowController {
         generalSectionLabel.stringValue = L10n.text("generalSection")
         languageLabel.stringValue = L10n.text("language")
         launchAtLoginLabel.stringValue = L10n.text("launchAtLogin")
-        showMenuBarIconLabel.stringValue = L10n.text("showMenuBarIcon")
+        showMenuBarIconLabel.stringValue = L10n.text("menuBarIcon")
         permissionsSectionLabel.stringValue = L10n.text("permissionsSection")
         aboutSectionLabel.stringValue = L10n.text("aboutSection")
         advancedSectionLabel.stringValue = L10n.text("advancedSection")
@@ -120,8 +179,8 @@ final class SettingsWindowController: NSWindowController {
         inputMonitoringTitleLabel.stringValue = L10n.text("inputMonitoring")
         inputMonitoringDetailLabel.stringValue = L10n.text("inputMonitoringDetail")
         inputMonitoringHintLabel.stringValue = L10n.text("inputMonitoringRestartHint")
-        openAccessibilityButton.title = L10n.text("openAccessibilitySettings")
-        recheckButton.title = L10n.text("recheckPermissions")
+        openAccessibilityButton.title = L10n.text("goToSettings")
+        recheckButton.title = L10n.text("goToSettings")
         aboutVersionTitleLabel.stringValue = L10n.text("aboutVersion")
         aboutVersionValueLabel.stringValue = currentVersionString()
         aboutStatusLabel.stringValue = ""
@@ -132,13 +191,11 @@ final class SettingsWindowController: NSWindowController {
         openIssueButton.title = ""
         checkUpdatesButton.title = ""
         updateTitleLabel.stringValue = L10n.text("aboutCheckUpdates")
-        updateDetailLabel.stringValue = "Stay up to date with the latest features and bug fixes."
+        updateDetailLabel.stringValue = L10n.text("aboutUpdateDescription")
         quitTitleLabel.stringValue = L10n.text("quit")
         quitDetailLabel.stringValue = L10n.text("restartRequired")
         quitButton.title = L10n.text("quit")
-        closeButton.title = "×"
 
-        let selectedLanguage = AppState.shared.preferredLanguage
         languagePopup.removeAllItems()
         for language in AppLanguage.allCases {
             let item = NSMenuItem(
@@ -149,7 +206,7 @@ final class SettingsWindowController: NSWindowController {
             item.representedObject = language.rawValue
             languagePopup.menu?.addItem(item)
         }
-        selectLanguage(selectedLanguage)
+        selectLanguage(AppState.shared.preferredLanguage)
         refreshWorkflowState(restartRequired: currentRestartRequired)
     }
 
@@ -166,261 +223,233 @@ final class SettingsWindowController: NSWindowController {
         let accessibilityGranted = permissionManager.isAccessibilityGranted()
         let inputMonitoringGranted = permissionManager.isInputMonitoringGranted()
 
-        accessibilityStateLabel.stringValue = permissionStateText(
-            granted: accessibilityGranted,
-            grantedText: L10n.text("accessibilityGranted"),
-            missingText: L10n.text("accessibilityMissing")
+        updateStatusPill(
+            accessibilityStateLabel,
+            text: permissionStateText(
+                granted: accessibilityGranted,
+                grantedText: L10n.text("accessibilityGranted"),
+                missingText: L10n.text("accessibilityMissing")
+            ),
+            color: accessibilityGranted ? .systemGreen : .systemRed
         )
-        accessibilityStateLabel.textColor = accessibilityGranted ? .systemGreen : .systemRed
-        accessibilityStateLabel.backgroundColor = accessibilityGranted ? NSColor.systemGreen.withAlphaComponent(0.14) : NSColor.systemRed.withAlphaComponent(0.14)
 
-        inputMonitoringStateLabel.stringValue = permissionStateText(
-            granted: inputMonitoringGranted,
-            grantedText: L10n.text("inputGranted"),
-            missingText: L10n.text("inputMissing")
+        updateStatusPill(
+            inputMonitoringStateLabel,
+            text: permissionStateText(
+                granted: inputMonitoringGranted,
+                grantedText: L10n.text("inputGranted"),
+                missingText: L10n.text("inputMissing")
+            ),
+            color: inputMonitoringGranted ? .systemGreen : .systemRed
         )
-        inputMonitoringStateLabel.textColor = inputMonitoringGranted ? .systemBlue : .systemRed
-        inputMonitoringStateLabel.backgroundColor = inputMonitoringGranted ? NSColor.systemBlue.withAlphaComponent(0.14) : NSColor.systemRed.withAlphaComponent(0.14)
-        inputMonitoringHintLabel.isHidden = inputMonitoringGranted
 
-        updateGuide(accessibilityGranted: accessibilityGranted)
-        updateSectionVisibility(accessibilityGranted: accessibilityGranted, inputMonitoringGranted: inputMonitoringGranted)
-        openAccessibilityButton.title = accessibilityGranted ? L10n.text("openAccessibilitySettings") : L10n.text("grantAccess")
-        recheckButton.title = inputMonitoringGranted ? L10n.text("recheckPermissions") : L10n.text("openInputMonitoringSettings")
-    }
-
-    private func updateGuide(accessibilityGranted: Bool) {
-        guideSectionHeaderRow.isHidden = false
-        guideCardView.isHidden = false
-        guideTitleLabel.textColor = .labelColor
-        setGuidePulseActive(!accessibilityGranted)
-
-        guideTitleLabel.stringValue = L10n.text("step1Title")
-        guideDetailLabel.attributedStringValue = attributedGuideDetail(
-            text: L10n.text("step1Detail"),
-            highlight: nil
-        )
-        guideActionButton.title = accessibilityGranted ? L10n.text("openAccessibilitySettings") : L10n.text("grantAccess")
-        guideActionButton.target = self
-        guideActionButton.action = #selector(openAccessibility)
-        guideActionButton.isHidden = false
-    }
-
-    private func updateSectionVisibility(accessibilityGranted: Bool, inputMonitoringGranted: Bool) {
-        openAccessibilityButton.isHidden = false
-        recheckButton.isHidden = false
         inputMonitoringHintLabel.isHidden = !accessibilityGranted || inputMonitoringGranted
-        recheckButton.contentTintColor = inputMonitoringGranted ? .systemBlue : .systemBlue
-    }
-
-    private func setGuidePulseActive(_ active: Bool) {
-        guard active != isGuidePulseActive else { return }
-        isGuidePulseActive = active
-        guard let layer = guideCardView.layer else { return }
-
-        layer.removeAnimation(forKey: "guidePulse")
-        if active {
-            let colorAnimation = CABasicAnimation(keyPath: "borderColor")
-            colorAnimation.fromValue = NSColor.systemBlue.withAlphaComponent(0.35).cgColor
-            colorAnimation.toValue = NSColor.systemBlue.cgColor
-            colorAnimation.duration = 0.9
-            colorAnimation.autoreverses = true
-            colorAnimation.repeatCount = .infinity
-            colorAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            layer.add(colorAnimation, forKey: "guidePulse")
-        } else {
-            layer.borderColor = NSColor.separatorColor.cgColor
-        }
+        updateGuide(accessibilityGranted: accessibilityGranted, inputMonitoringGranted: inputMonitoringGranted)
+        updatePermissionActionButton(openAccessibilityButton, granted: accessibilityGranted)
+        updatePermissionActionButton(recheckButton, granted: inputMonitoringGranted)
     }
 
     private func configureWindow() {
         guard let window else { return }
         window.title = L10n.text("settingsTitle")
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.standardWindowButton(.closeButton)?.isHidden = true
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
         window.isReleasedWhenClosed = false
         window.center()
-        window.setContentSize(NSSize(width: 920, height: 920))
-        window.minSize = NSSize(width: 860, height: 760)
-        window.isMovableByWindowBackground = true
+        window.setContentSize(windowSize)
+        window.minSize = NSSize(width: 760, height: 680)
+        window.backgroundColor = currentPageBackground()
+        applyThemeColors()
     }
 
     private func makeContentView() -> NSView {
-        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 920, height: 920))
+        let scrollView = NSScrollView(frame: NSRect(origin: .zero, size: windowSize))
         scrollView.hasVerticalScroller = true
-        scrollView.drawsBackground = false
         scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        settingsScrollView = scrollView
 
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 920, height: 1400))
+        let contentView = SettingsBackgroundView(frame: NSRect(x: 0, y: 0, width: windowSize.width, height: 980))
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = currentPageBackground().cgColor
+        contentView.onEffectiveAppearanceChange = { [weak self] in
+            self?.applyThemeColors()
+            self?.refreshWorkflowState(restartRequired: self?.currentRestartRequired ?? false)
+        }
         contentView.translatesAutoresizingMaskIntoConstraints = false
+        settingsBackgroundView = contentView
         scrollView.documentView = contentView
 
-        func iconView(named name: String) -> NSImageView {
-            let view = NSImageView()
-            view.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
-            view.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
-            view.contentTintColor = .secondaryLabelColor
-            view.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                view.widthAnchor.constraint(equalToConstant: 18),
-                view.heightAnchor.constraint(equalToConstant: 18),
-            ])
-            return view
-        }
+        setupTypographyAndControls()
 
-        func titleRow(icon: String, title: NSTextField) -> NSStackView {
-            let stack = NSStackView(views: [iconView(named: icon), title])
-            stack.orientation = .horizontal
-            stack.alignment = .centerY
-            stack.spacing = 10
-            stack.translatesAutoresizingMaskIntoConstraints = false
-            return stack
-        }
+        let headerStack = makeHeader()
+        guideSectionHeaderRow = makeSectionHeader(guideSectionLabel)
+        configureGuideCard()
+        configureGuideStepTwoCard()
+        configureGeneralCard()
+        configurePermissionsCard()
+        configureAboutCard()
+        configureUpdateCard()
+        configureAdvancedCard()
 
-        func titleDetailRow(icon: String, title: NSTextField, detail: NSTextField, status: NSTextField? = nil) -> NSStackView {
-            if let status {
-                status.textColor = .systemRed
-                status.font = .systemFont(ofSize: 10, weight: .semibold)
-            }
+        let rootStack = NSStackView(views: [
+            headerStack,
+            guideSectionHeaderRow,
+            guideCardView,
+            guideStepTwoCardView,
+            makeSectionHeader(permissionsSectionLabel),
+            permissionsCardView,
+            makeSectionHeader(generalSectionLabel),
+            generalCardView,
+            makeSectionHeader(aboutSectionLabel),
+            aboutCardView,
+            updateCardView,
+            makeSectionHeader(advancedSectionLabel),
+            advancedCardView,
+        ])
+        rootStack.orientation = .vertical
+        rootStack.alignment = .width
+        rootStack.spacing = 15
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
 
-            let topRow = NSStackView(views: [iconView(named: icon), title, status].compactMap { $0 })
-            topRow.orientation = .horizontal
-            topRow.alignment = .centerY
-            topRow.spacing = 10
-
-            let leftStack = NSStackView(views: [topRow, detail])
-            leftStack.orientation = .vertical
-            leftStack.alignment = .leading
-            leftStack.spacing = 6
-            leftStack.translatesAutoresizingMaskIntoConstraints = false
-            return leftStack
-        }
-
-        func rightButton(_ button: NSButton, tint: NSColor = .labelColor) -> NSButton {
-            button.bezelStyle = .inline
-            button.isBordered = false
-            button.imagePosition = .imageTrailing
-            button.contentTintColor = tint
-            button.alignment = .right
-            button.translatesAutoresizingMaskIntoConstraints = false
-            return button
-        }
-
-        titleLabel.font = .systemFont(ofSize: 22, weight: .semibold)
-        subtitleLabel.textColor = .secondaryLabelColor
-        subtitleLabel.font = .systemFont(ofSize: 13, weight: .regular)
-        subtitleLabel.maximumNumberOfLines = 2
-        subtitleLabel.lineBreakMode = .byWordWrapping
-
-        closeButton.target = self
-        closeButton.action = #selector(closeWindow)
-        closeButton.font = .systemFont(ofSize: 20, weight: .regular)
-        closeButton.bezelStyle = .inline
-        closeButton.isBordered = false
-        closeButton.contentTintColor = .labelColor
-        closeButton.alignment = .center
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-
-        guideTitleLabel.font = .systemFont(ofSize: 30, weight: .bold)
-        guideTitleLabel.textColor = .systemBlue
-        guideDetailLabel.font = .systemFont(ofSize: 16, weight: .medium)
-        guideDetailLabel.textColor = .labelColor
-        guideDetailLabel.maximumNumberOfLines = 0
-        guideDetailLabel.lineBreakMode = .byWordWrapping
-
-        guideActionButton.target = self
-        guideActionButton.action = #selector(openAccessibility)
-        guideActionButton.bezelStyle = .rounded
-        guideActionButton.controlSize = .large
-        guideActionButton.font = .systemFont(ofSize: 15, weight: .medium)
-        guideActionButton.image = NSImage(systemSymbolName: "gearshape.fill", accessibilityDescription: nil)
-        guideActionButton.contentTintColor = .white
-        guideActionButton.imagePosition = .imageLeading
-        guideActionButton.wantsLayer = true
-        guideActionButton.layer?.backgroundColor = NSColor.systemBlue.cgColor
-        guideActionButton.layer?.cornerRadius = 12
-        guideActionButton.layer?.masksToBounds = true
-
-        guideSectionLabel.isHidden = true
-        guideSectionHeaderRow.isHidden = true
-        guideCardView.isHidden = true
-        guideCardView.wantsLayer = true
-        guideCardView.layer?.cornerRadius = 16
-        guideCardView.layer?.borderWidth = 1.5
-        guideCardView.layer?.borderColor = NSColor.systemBlue.withAlphaComponent(0.35).cgColor
-        guideCardView.layer?.shadowColor = NSColor.systemBlue.cgColor
-        guideCardView.layer?.shadowOpacity = 0.08
-        guideCardView.layer?.shadowRadius = 14
-        guideCardView.layer?.shadowOffset = .zero
-
-        let guideLeftStack = NSStackView(views: [guideTitleLabel, guideDetailLabel])
-        guideLeftStack.orientation = .vertical
-        guideLeftStack.alignment = .leading
-        guideLeftStack.spacing = 14
-
-        let guideButtonStack = NSStackView(views: [guideActionButton])
-        guideButtonStack.orientation = .vertical
-        guideButtonStack.alignment = .trailing
-        guideButtonStack.spacing = 10
-
-        let guideRow = makeRow(left: guideLeftStack, right: guideButtonStack)
-        guideRow.alignment = .top
-        let guideStack = makeSectionStack(rows: [guideRow], spacing: 0)
-        configureCardContainer(guideCardView, content: guideStack)
-        guideCardView.layer?.cornerRadius = 16
-        guideCardView.layer?.borderWidth = 1.5
-        guideCardView.layer?.borderColor = NSColor.systemBlue.withAlphaComponent(0.35).cgColor
-        guideCardView.layer?.shadowColor = NSColor.systemBlue.cgColor
-        guideCardView.layer?.shadowOpacity = 0.08
-        guideCardView.layer?.shadowRadius = 14
-        guideCardView.layer?.shadowOffset = .zero
-
-        headerIconView.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil)
-        headerIconView.contentTintColor = .white
-        headerIconView.imageScaling = .scaleProportionallyDown
-        headerIconView.wantsLayer = true
-        headerIconView.layer?.backgroundColor = NSColor.systemBlue.cgColor
-        headerIconView.layer?.cornerRadius = 10
-        headerIconView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(rootStack)
+        let preferredWidth = rootStack.widthAnchor.constraint(equalTo: contentView.widthAnchor, constant: -Metrics.horizontalInset * 2)
+        preferredWidth.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            headerIconView.widthAnchor.constraint(equalToConstant: 40),
-            headerIconView.heightAnchor.constraint(equalToConstant: 40),
+            contentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            rootStack.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            rootStack.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: Metrics.horizontalInset),
+            rootStack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -Metrics.horizontalInset),
+            rootStack.widthAnchor.constraint(lessThanOrEqualToConstant: Metrics.contentWidth),
+            preferredWidth,
+            rootStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            rootStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -24),
         ])
 
-        [guideSectionLabel, generalSectionLabel, permissionsSectionLabel, aboutSectionLabel, advancedSectionLabel].forEach {
+        return scrollView
+    }
+
+    private func applyThemeColors() {
+        guard let window else { return }
+        let isDark = isDarkAppearance()
+
+        let pageBackground = Palette.pageBackground(isDark: isDark)
+        let cardBackground = Palette.cardBackground(isDark: isDark)
+        let cardBorder = Palette.cardBorder(isDark: isDark)
+        let guideBorder = Palette.guideBorder(isDark: isDark)
+        let destructiveBorder = Palette.destructiveBorder(isDark: isDark)
+        let dividerColor = Palette.divider(isDark: isDark)
+
+        window.backgroundColor = pageBackground
+        window.contentView?.layer?.backgroundColor = pageBackground.cgColor
+
+        settingsScrollView?.drawsBackground = true
+        settingsScrollView?.backgroundColor = pageBackground
+        settingsScrollView?.contentView.drawsBackground = true
+        settingsScrollView?.contentView.backgroundColor = pageBackground
+
+        settingsBackgroundView?.layer?.backgroundColor = pageBackground.cgColor
+
+        [guideCardView, guideStepTwoCardView, generalCardView, permissionsCardView, aboutCardView, updateCardView, advancedCardView].forEach {
+            $0.layer?.backgroundColor = cardBackground.cgColor
+            $0.layer?.borderColor = cardBorder.cgColor
+        }
+
+        themeAccentViews.forEach {
+            $0.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.10).cgColor
+        }
+        themeDividerViews.forEach {
+            $0.layer?.backgroundColor = dividerColor.cgColor
+        }
+
+        guideCardView.layer?.borderColor = isGuidePulseActive ? guideBorder.cgColor : cardBorder.cgColor
+        advancedCardView.layer?.borderColor = destructiveBorder.cgColor
+    }
+
+    private func isDarkAppearance() -> Bool {
+        let appearance = window?.effectiveAppearance ?? NSApp.effectiveAppearance
+        switch appearance.bestMatch(from: [.aqua, .darkAqua]) {
+        case .darkAqua:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func currentPageBackground() -> NSColor {
+        Palette.pageBackground(isDark: isDarkAppearance())
+    }
+
+    private func setupTypographyAndControls() {
+        headerIconView.image = AppIconProvider.appIcon() ?? NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil)
+        headerIconView.imageScaling = .scaleProportionallyDown
+        headerIconView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            headerIconView.widthAnchor.constraint(equalToConstant: 44),
+            headerIconView.heightAnchor.constraint(equalToConstant: 44),
+        ])
+
+        titleLabel.font = .systemFont(ofSize: 22, weight: .semibold)
+        subtitleLabel.font = .systemFont(ofSize: 13)
+        subtitleLabel.textColor = .secondaryLabelColor
+        subtitleLabel.maximumNumberOfLines = 2
+
+        [guideSectionLabel, permissionsSectionLabel, generalSectionLabel, aboutSectionLabel, advancedSectionLabel].forEach {
             $0.font = .systemFont(ofSize: 11, weight: .semibold)
             $0.textColor = .secondaryLabelColor
-            $0.isHidden = false
+            $0.maximumNumberOfLines = 1
         }
 
         [languageLabel, launchAtLoginLabel, showMenuBarIconLabel, accessibilityTitleLabel, inputMonitoringTitleLabel, aboutVersionTitleLabel, aboutProjectTitleLabel, aboutIssueTitleLabel, quitTitleLabel].forEach {
-            $0.font = .systemFont(ofSize: 14, weight: .medium)
+            $0.font = .systemFont(ofSize: 15, weight: .regular)
+            $0.textColor = .labelColor
+            $0.maximumNumberOfLines = 1
         }
+        showMenuBarIconLabel.stringValue = L10n.text("menuBarIcon")
 
-        [accessibilityDetailLabel, inputMonitoringDetailLabel, inputMonitoringHintLabel, aboutStatusLabel, subtitleLabel].forEach {
-            $0.font = .systemFont(ofSize: 12, weight: .regular)
+        [accessibilityDetailLabel, inputMonitoringDetailLabel, inputMonitoringHintLabel, updateDetailLabel, quitDetailLabel, aboutStatusLabel].forEach {
+            $0.font = .systemFont(ofSize: 13)
             $0.textColor = .secondaryLabelColor
-            $0.maximumNumberOfLines = 0
+            $0.maximumNumberOfLines = 2
+            $0.lineBreakMode = .byWordWrapping
         }
+        inputMonitoringHintLabel.textColor = .systemOrange
 
-        inputMonitoringHintLabel.textColor = .systemRed
-        quitDetailLabel.font = .systemFont(ofSize: 12, weight: .regular)
-        quitDetailLabel.textColor = .secondaryLabelColor
-        stylePill(accessibilityStateLabel, textColor: .systemRed, backgroundColor: NSColor.systemRed.withAlphaComponent(0.14))
-        stylePill(inputMonitoringStateLabel, textColor: .systemBlue, backgroundColor: NSColor.systemBlue.withAlphaComponent(0.14))
+        guideTitleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
+        guideTitleLabel.textColor = .labelColor
+        guideDetailLabel.font = .systemFont(ofSize: 13)
+        guideDetailLabel.textColor = .secondaryLabelColor
+        guideDetailLabel.maximumNumberOfLines = 3
+        guideDetailLabel.lineBreakMode = .byWordWrapping
+
+        styleRoundedButton(guideActionButton, imageName: "gearshape")
+        styleRoundedButton(guideStepTwoButton, imageName: "arrow.up.right.square")
+        styleRoundedButton(openAccessibilityButton, imageName: "lock.open")
+        styleRoundedButton(recheckButton, imageName: "checkmark.circle")
+        styleIconButton(openProjectButton, imageName: "arrow.up.right.square")
+        styleIconButton(openIssueButton, imageName: "arrow.up.right.square")
+        styleIconButton(checkUpdatesButton, imageName: "arrow.clockwise")
+        styleDestructiveButton(quitButton)
+
+        languagePopup.controlSize = .regular
+        launchAtLoginSwitch.controlSize = .small
+        showMenuBarIconSwitch.controlSize = .small
+        [launchAtLoginSwitch, showMenuBarIconSwitch].forEach {
+            $0.layer?.transform = CATransform3DMakeScale(0.88, 0.88, 1)
+        }
 
         languagePopup.target = self
         languagePopup.action = #selector(languageChanged)
-
         launchAtLoginSwitch.target = self
         launchAtLoginSwitch.action = #selector(toggleLaunchAtLogin)
         showMenuBarIconSwitch.target = self
         showMenuBarIconSwitch.action = #selector(toggleMenuBarIcon)
-
+        guideActionButton.target = self
+        guideActionButton.action = #selector(openAccessibility)
+        guideStepTwoButton.target = self
+        guideStepTwoButton.action = #selector(openInputMonitoring)
         openAccessibilityButton.target = self
         openAccessibilityButton.action = #selector(openAccessibility)
         recheckButton.target = self
@@ -433,195 +462,200 @@ final class SettingsWindowController: NSWindowController {
         checkUpdatesButton.action = #selector(checkForUpdates)
         quitButton.target = self
         quitButton.action = #selector(quitApp)
+    }
 
-        [openAccessibilityButton, recheckButton].forEach {
-            _ = rightButton($0, tint: .systemBlue)
-        }
-        [openProjectButton, openIssueButton, checkUpdatesButton, quitButton].forEach {
-            _ = rightButton($0)
-        }
-        openProjectButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: nil)
-        openIssueButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: nil)
-        checkUpdatesButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
-        quitButton.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
-        [openProjectButton, openIssueButton, checkUpdatesButton].forEach {
-            $0.contentTintColor = .secondaryLabelColor
-        }
-        quitButton.contentTintColor = .white
-        quitButton.imagePosition = .imageLeading
-        quitButton.wantsLayer = true
-        quitButton.layer?.backgroundColor = NSColor.systemRed.cgColor
-        quitButton.layer?.cornerRadius = 10
-        quitButton.layer?.masksToBounds = true
-        [openProjectButton, openIssueButton, checkUpdatesButton].forEach {
-            $0.imagePosition = .imageOnly
-        }
-        checkUpdatesButton.wantsLayer = true
-        checkUpdatesButton.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        checkUpdatesButton.layer?.borderWidth = 1
-        checkUpdatesButton.layer?.borderColor = NSColor.systemBlue.cgColor
-        checkUpdatesButton.layer?.cornerRadius = 10
-        checkUpdatesButton.layer?.masksToBounds = true
-        checkUpdatesButton.contentTintColor = .systemBlue
-
-        let languageRow = makeRow(left: titleRow(icon: "globe", title: languageLabel), right: languagePopup)
-        let launchRow = makeRow(left: titleRow(icon: "power", title: launchAtLoginLabel), right: launchAtLoginSwitch)
-        let menuBarRow = makeRow(left: titleRow(icon: "eye", title: showMenuBarIconLabel), right: showMenuBarIconSwitch)
-        let generalStack = makeSectionStack(rows: [languageRow, makeDivider(), launchRow, makeDivider(), menuBarRow], spacing: 0)
-        configureCardContainer(generalCardView, content: generalStack)
-
-        let accessibilityTopRow = makeRow(
-            left: titleDetailRow(
-                icon: "accessibility",
-                title: accessibilityTitleLabel,
-                detail: accessibilityDetailLabel,
-                status: accessibilityStateLabel
-            ),
-            right: openAccessibilityButton
-        )
-        let inputMonitoringTopRow = makeRow(
-            left: titleDetailRow(
-                icon: "keyboard",
-                title: inputMonitoringTitleLabel,
-                detail: inputMonitoringDetailLabel,
-                status: inputMonitoringStateLabel
-            ),
-            right: recheckButton
-        )
-        let permissionsStack = makeSectionStack(rows: [
-            accessibilityTopRow,
-            makeDivider(),
-            inputMonitoringTopRow,
-            inputMonitoringHintLabel,
-        ], spacing: 0)
-        configureCardContainer(permissionsCardView, content: permissionsStack)
-
-        let aboutVersionRow = makeRow(left: titleRow(icon: "info.circle", title: aboutVersionTitleLabel), right: aboutVersionValueLabel)
-        aboutVersionValueLabel.textColor = .secondaryLabelColor
-        let aboutProjectRow = makeRow(left: titleRow(icon: "link", title: aboutProjectTitleLabel), right: openProjectButton)
-        let aboutIssueRow = makeRow(left: titleRow(icon: "bubble.left", title: aboutIssueTitleLabel), right: openIssueButton)
-        let aboutStack = makeSectionStack(rows: [
-            aboutVersionRow,
-            makeDivider(),
-            aboutProjectRow,
-            makeDivider(),
-            aboutIssueRow,
-        ], spacing: 0)
-        configureCardContainer(aboutCardView, content: aboutStack)
-
-        let updateLeftStack = NSStackView(views: [updateTitleLabel, updateDetailLabel])
-        updateLeftStack.orientation = .vertical
-        updateLeftStack.alignment = .leading
-        updateLeftStack.spacing = 4
-        updateTitleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
-        updateDetailLabel.font = .systemFont(ofSize: 12, weight: .regular)
-        updateDetailLabel.textColor = .secondaryLabelColor
-        updateDetailLabel.maximumNumberOfLines = 2
-
-        let updateRow = makeRow(left: updateLeftStack, right: checkUpdatesButton)
-        let updateStack = makeSectionStack(rows: [updateRow, aboutStatusLabel], spacing: 0)
-        configureCardContainer(updateCardView, content: updateStack)
-
-        let quitStack = makeRow(left: titleDetailRow(icon: "power", title: quitTitleLabel, detail: quitDetailLabel), right: quitButton)
-        configureCardContainer(advancedCardView, content: quitStack)
-        advancedCardView.wantsLayer = true
-        advancedCardView.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.06).cgColor
-        advancedCardView.layer?.borderColor = NSColor.systemRed.withAlphaComponent(0.20).cgColor
-
+    private func makeHeader() -> NSStackView {
         let titleStack = NSStackView(views: [titleLabel, subtitleLabel])
         titleStack.orientation = .vertical
         titleStack.alignment = .leading
-        titleStack.spacing = 4
+        titleStack.spacing = 3
 
-        let headerLeftStack = NSStackView(views: [headerIconView, titleStack])
-        headerLeftStack.orientation = .horizontal
-        headerLeftStack.alignment = .centerY
-        headerLeftStack.spacing = 12
+        let leftStack = NSStackView(views: [headerIconView, titleStack])
+        leftStack.orientation = .horizontal
+        leftStack.alignment = .centerY
+        leftStack.spacing = 12
 
-        let headerSpacer = NSView()
-        headerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        headerSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let headerStack = NSStackView(views: [headerLeftStack, headerSpacer, closeButton])
-        headerStack.orientation = .horizontal
-        headerStack.alignment = .centerY
-        headerStack.distribution = .fill
-        headerStack.spacing = 12
+        let stack = NSStackView(views: [leftStack, spacer])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.distribution = .fill
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 2, right: 0)
+        return stack
+    }
 
-        guideSectionHeaderRow = makeSectionHeader(guideSectionLabel)
-
-        let rootStack = NSStackView(views: [
-            headerStack,
-            guideSectionHeaderRow,
-            guideCardView,
-            makeSectionHeader(generalSectionLabel),
-            generalCardView,
-            makeSectionHeader(permissionsSectionLabel),
-            permissionsCardView,
-            makeSectionHeader(aboutSectionLabel),
-            aboutCardView,
-            updateCardView,
-            makeSectionHeader(advancedSectionLabel),
-            advancedCardView,
-        ])
-        rootStack.orientation = .vertical
-        rootStack.alignment = .width
-        rootStack.spacing = 22
-        rootStack.translatesAutoresizingMaskIntoConstraints = false
-        rootStack.setHuggingPriority(.defaultLow, for: .horizontal)
-
-        contentView.addSubview(rootStack)
+    private func configureGuideCard() {
+        let icon = iconView(named: "accessibility", size: 24, tint: .systemBlue)
+        let iconContainer = NSView()
+        iconContainer.wantsLayer = true
+        iconContainer.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.10).cgColor
+        iconContainer.layer?.cornerRadius = 8
+        iconContainer.translatesAutoresizingMaskIntoConstraints = false
+        iconContainer.addSubview(icon)
+        themeAccentViews.append(iconContainer)
         NSLayoutConstraint.activate([
-            contentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
-            rootStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 28),
-            rootStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -28),
-            rootStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 26),
-            rootStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -26),
+            iconContainer.widthAnchor.constraint(equalToConstant: 42),
+            iconContainer.heightAnchor.constraint(equalToConstant: 42),
+            icon.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
         ])
 
-        return scrollView
-    }
+        let textStack = NSStackView(views: [guideTitleLabel, guideDetailLabel])
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 5
 
-    private func labeledRow(label: NSTextField, control: NSControl) -> NSStackView {
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let leftStack = NSStackView(views: [iconContainer, textStack])
+        leftStack.orientation = .horizontal
+        leftStack.alignment = .top
+        leftStack.spacing = 12
 
-        let row = NSStackView(views: [label, spacer, control])
-        row.orientation = .horizontal
+        let row = makeRow(left: leftStack, right: guideActionButton)
         row.alignment = .centerY
-        row.distribution = .fill
-        row.spacing = 12
-        label.setContentHuggingPriority(.required, for: .horizontal)
-        label.setContentCompressionResistancePriority(.required, for: .horizontal)
-        control.setContentHuggingPriority(.required, for: .horizontal)
-        control.setContentCompressionResistancePriority(.required, for: .horizontal)
-        return row
+        configureCardContainer(guideCardView, content: row)
     }
 
-    private func statusRow(title: NSTextField, state: NSTextField) -> NSStackView {
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    private func configureGuideStepTwoCard() {
+        guideStepTwoTitleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
+        guideStepTwoTitleLabel.textColor = .labelColor
+        guideStepTwoDetailLabel.font = .systemFont(ofSize: 13)
+        guideStepTwoDetailLabel.textColor = .secondaryLabelColor
+        guideStepTwoDetailLabel.maximumNumberOfLines = 3
+        guideStepTwoDetailLabel.lineBreakMode = .byWordWrapping
 
-        let row = NSStackView(views: [title, spacer, state])
-        row.orientation = .horizontal
+        let icon = iconView(named: "keyboard", size: 20, tint: .systemBlue)
+        let iconContainer = NSView()
+        iconContainer.wantsLayer = true
+        iconContainer.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.10).cgColor
+        iconContainer.layer?.cornerRadius = 8
+        iconContainer.translatesAutoresizingMaskIntoConstraints = false
+        iconContainer.addSubview(icon)
+        themeAccentViews.append(iconContainer)
+        NSLayoutConstraint.activate([
+            iconContainer.widthAnchor.constraint(equalToConstant: 42),
+            iconContainer.heightAnchor.constraint(equalToConstant: 42),
+            icon.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
+        ])
+
+        let textStack = NSStackView(views: [guideStepTwoTitleLabel, guideStepTwoDetailLabel])
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 5
+
+        let leftStack = NSStackView(views: [iconContainer, textStack])
+        leftStack.orientation = .horizontal
+        leftStack.alignment = .top
+        leftStack.spacing = 12
+
+        let row = makeRow(left: leftStack, right: guideStepTwoButton)
         row.alignment = .centerY
-        row.distribution = .fill
-        row.spacing = 12
-        title.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        state.setContentHuggingPriority(.required, for: .horizontal)
-        state.setContentCompressionResistancePriority(.required, for: .horizontal)
-        return row
+        configureCardContainer(guideStepTwoCardView, content: row)
+        guideStepTwoCardView.layer?.borderColor = Palette.cardBorder(isDark: isDarkAppearance()).cgColor
     }
 
-    private func configureCardContainer(_ container: NSView, content: NSView) {
+    private func configureGeneralCard() {
+        let rows = [
+            makeSettingsRow(icon: "globe", title: languageLabel, detail: nil, trailing: languagePopup),
+            makeDivider(),
+            makeSettingsRow(icon: "power", title: launchAtLoginLabel, detail: nil, trailing: launchAtLoginSwitch),
+            makeDivider(),
+            makeSettingsRow(icon: "menubar.rectangle", title: showMenuBarIconLabel, detail: nil, trailing: showMenuBarIconSwitch),
+        ]
+        configureCardContainer(generalCardView, content: makeSectionStack(rows: rows))
+    }
+
+    private func configurePermissionsCard() {
+        let accessibilityRow = makeSettingsRow(
+            icon: "accessibility",
+            title: accessibilityTitleLabel,
+            detail: accessibilityDetailLabel,
+            status: accessibilityStateLabel,
+            trailing: openAccessibilityButton
+        )
+        let inputMonitoringRow = makeSettingsRow(
+            icon: "keyboard",
+            title: inputMonitoringTitleLabel,
+            detail: inputMonitoringDetailLabel,
+            status: inputMonitoringStateLabel,
+            trailing: recheckButton
+        )
+        configureCardContainer(permissionsCardView, content: makeSectionStack(rows: [
+            accessibilityRow,
+            makeDivider(),
+            inputMonitoringRow,
+            inputMonitoringHintLabel,
+        ], spacing: 8))
+    }
+
+    private func configureAboutCard() {
+        aboutVersionValueLabel.font = .systemFont(ofSize: 13)
+        aboutVersionValueLabel.textColor = .secondaryLabelColor
+
+        let rows = [
+            makeSettingsRow(icon: "info.circle", title: aboutVersionTitleLabel, detail: nil, trailing: aboutVersionValueLabel),
+            makeDivider(),
+            makeSettingsRow(icon: "link", title: aboutProjectTitleLabel, detail: nil, trailing: openProjectButton),
+            makeDivider(),
+            makeSettingsRow(icon: "bubble.left", title: aboutIssueTitleLabel, detail: nil, trailing: openIssueButton),
+        ]
+        configureCardContainer(aboutCardView, content: makeSectionStack(rows: rows))
+    }
+
+    private func configureUpdateCard() {
+        updateTitleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        let textStack = NSStackView(views: [updateTitleLabel, updateDetailLabel])
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 4
+
+        configureCardContainer(updateCardView, content: makeSectionStack(rows: [
+            makeRow(left: textStack, right: checkUpdatesButton),
+            aboutStatusLabel,
+        ], spacing: 8))
+    }
+
+    private func configureAdvancedCard() {
+        let row = makeSettingsRow(icon: "power", title: quitTitleLabel, detail: quitDetailLabel, trailing: quitButton)
+        configureCardContainer(advancedCardView, content: row, tint: .systemRed)
+    }
+
+    private func updateGuide(accessibilityGranted: Bool, inputMonitoringGranted: Bool) {
+        let showStepOne = !accessibilityGranted
+        let showStepTwo = accessibilityGranted && !inputMonitoringGranted
+
+        guideSectionHeaderRow.isHidden = !(showStepOne || showStepTwo)
+        guideCardView.isHidden = !showStepOne
+        guideStepTwoCardView.isHidden = !showStepTwo
+
+        setGuidePulseActive(showStepOne)
+
+        guideTitleLabel.stringValue = L10n.text("step1Title")
+        guideDetailLabel.stringValue = L10n.text("step1Detail")
+        guideActionButton.title = L10n.text("goToSettings")
+
+        guideStepTwoTitleLabel.stringValue = L10n.text("step2Title")
+        guideStepTwoDetailLabel.stringValue = L10n.text("step2Detail")
+        guideStepTwoButton.title = L10n.text("goToSettings")
+    }
+
+    private func setGuidePulseActive(_ active: Bool) {
+        guard active != isGuidePulseActive else { return }
+        isGuidePulseActive = active
+        guideCardView.layer?.removeAnimation(forKey: "guidePulse")
+        let borderColor = active ? Palette.guideBorder(isDark: isDarkAppearance()) : Palette.cardBorder(isDark: isDarkAppearance())
+        guideCardView.layer?.borderColor = borderColor.cgColor
+    }
+
+    private func configureCardContainer(_ container: NSView, content: NSView, tint: NSColor? = nil) {
         container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        container.layer?.cornerRadius = 12
+        container.layer?.backgroundColor = Palette.cardBackground(isDark: isDarkAppearance()).cgColor
+        container.layer?.cornerRadius = 8
         container.layer?.borderWidth = 1
-        container.layer?.borderColor = NSColor.separatorColor.cgColor
+        container.layer?.borderColor = (tint == nil ? Palette.cardBorder(isDark: isDarkAppearance()) : Palette.destructiveBorder(isDark: isDarkAppearance())).cgColor
         container.translatesAutoresizingMaskIntoConstraints = false
 
         let paddedContent = NSView()
@@ -632,9 +666,8 @@ final class SettingsWindowController: NSWindowController {
         NSLayoutConstraint.activate([
             paddedContent.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
             paddedContent.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-            paddedContent.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
-            paddedContent.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
-
+            paddedContent.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+            paddedContent.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
             content.leadingAnchor.constraint(equalTo: paddedContent.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: paddedContent.trailingAnchor),
             content.topAnchor.constraint(equalTo: paddedContent.topAnchor),
@@ -642,9 +675,33 @@ final class SettingsWindowController: NSWindowController {
         ])
     }
 
+    private func makeSettingsRow(icon: String, title: NSTextField, detail: NSTextField?, status: NSTextField? = nil, trailing: NSView) -> NSStackView {
+        let imageView = iconView(named: icon, size: 17, tint: .secondaryLabelColor)
+
+        let titleViews = [title] + [status].compactMap { $0 }
+        let titleRow = NSStackView(views: titleViews)
+        titleRow.orientation = .horizontal
+        titleRow.alignment = .centerY
+        titleRow.spacing = 9
+
+        let textViews = [titleRow] + [detail].compactMap { $0 }
+        let textStack = NSStackView(views: textViews)
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 5
+
+        let leftStack = NSStackView(views: [imageView, textStack])
+        leftStack.orientation = .horizontal
+        leftStack.alignment = detail == nil ? .centerY : .top
+        leftStack.spacing = 13
+
+        let row = makeRow(left: leftStack, right: trailing)
+        row.edgeInsets = NSEdgeInsets(top: detail == nil ? 8 : 10, left: 0, bottom: detail == nil ? 8 : 10, right: 0)
+        return row
+    }
+
     private func makeRow(left: NSView, right: NSView) -> NSStackView {
         let spacer = NSView()
-        spacer.translatesAutoresizingMaskIntoConstraints = false
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -660,10 +717,13 @@ final class SettingsWindowController: NSWindowController {
         return row
     }
 
-    private func makeDivider() -> NSBox {
-        let divider = NSBox()
-        divider.boxType = .separator
+    private func makeDivider() -> NSView {
+        let divider = NSView()
+        divider.wantsLayer = true
+        divider.layer?.backgroundColor = Palette.divider(isDark: isDarkAppearance()).cgColor
         divider.translatesAutoresizingMaskIntoConstraints = false
+        divider.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        themeDividerViews.append(divider)
         return divider
     }
 
@@ -685,23 +745,93 @@ final class SettingsWindowController: NSWindowController {
         row.orientation = .horizontal
         row.alignment = .centerY
         row.distribution = .fill
-        row.spacing = 8
+        row.edgeInsets = NSEdgeInsets(top: 8, left: 2, bottom: -4, right: 2)
         label.alignment = .left
-        label.setContentHuggingPriority(.required, for: .horizontal)
-        label.setContentCompressionResistancePriority(.required, for: .horizontal)
         return row
     }
 
-    private func stylePill(_ label: NSTextField, textColor: NSColor, backgroundColor: NSColor) {
+    private func iconView(named name: String, size: CGFloat, tint: NSColor) -> NSImageView {
+        let view = NSImageView()
+        view.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
+        view.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
+        view.contentTintColor = tint
+        view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            view.widthAnchor.constraint(equalToConstant: 20),
+            view.heightAnchor.constraint(equalToConstant: 20),
+        ])
+        return view
+    }
+
+    private func styleRoundedButton(_ button: NSButton, imageName: String) {
+        button.bezelStyle = .rounded
+        button.controlSize = .regular
+        button.font = .systemFont(ofSize: 13, weight: .medium)
+        button.image = NSImage(systemSymbolName: imageName, accessibilityDescription: nil)
+        button.imagePosition = .imageLeading
+        button.contentTintColor = nil
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 30).isActive = true
+    }
+
+    private func styleIconButton(_ button: NSButton, imageName: String) {
+        button.bezelStyle = .rounded
+        button.controlSize = .regular
+        button.image = NSImage(systemSymbolName: imageName, accessibilityDescription: nil)
+        button.imagePosition = .imageOnly
+        button.contentTintColor = .secondaryLabelColor
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 30).isActive = true
+        button.widthAnchor.constraint(greaterThanOrEqualToConstant: 34).isActive = true
+    }
+
+    private func styleDestructiveButton(_ button: NSButton) {
+        button.bezelStyle = .rounded
+        button.controlSize = .regular
+        button.font = .systemFont(ofSize: 13, weight: .medium)
+        button.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
+        button.imagePosition = .imageLeading
+        button.contentTintColor = .systemRed
+        button.setContentHuggingPriority(.required, for: .horizontal)
+    }
+
+    private func updateStatusPill(_ label: NSTextField, text: String, color: NSColor) {
+        label.stringValue = text
         label.wantsLayer = true
-        label.layer?.cornerRadius = 999
-        label.layer?.masksToBounds = true
         label.drawsBackground = true
-        label.backgroundColor = backgroundColor
-        label.textColor = textColor
+        label.backgroundColor = color.withAlphaComponent(0.12)
+        label.textColor = color
         label.alignment = .center
         label.font = .systemFont(ofSize: 10, weight: .semibold)
         label.maximumNumberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
+        label.layer?.cornerRadius = 6
+        label.layer?.masksToBounds = true
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        if label.constraints.first(where: { $0.identifier == "statusPillMinWidth" }) == nil {
+            let width = label.widthAnchor.constraint(greaterThanOrEqualToConstant: 72)
+            width.identifier = "statusPillMinWidth"
+            width.isActive = true
+        }
+    }
+
+    private func updatePermissionActionButton(_ button: NSButton, granted: Bool) {
+        if granted {
+            button.title = ""
+            button.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)
+            button.imagePosition = .imageOnly
+            button.isBordered = false
+            button.focusRingType = .none
+            button.contentTintColor = .systemGreen
+        } else {
+            button.title = L10n.text("goToSettings")
+            button.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
+            button.imagePosition = .imageLeading
+            button.isBordered = true
+            button.focusRingType = .default
+            button.contentTintColor = nil
+        }
     }
 
     private func permissionStateText(granted: Bool, grantedText: String, missingText: String) -> String {
@@ -710,33 +840,6 @@ final class SettingsWindowController: NSWindowController {
 
     private func currentVersionString() -> String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-    }
-
-    private func attributedGuideDetail(text: String, highlight: String?) -> NSAttributedString {
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 2
-
-        let attributed = NSMutableAttributedString(
-            string: text,
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 12, weight: .regular),
-                .foregroundColor: NSColor.secondaryLabelColor,
-                .paragraphStyle: paragraphStyle,
-            ]
-        )
-
-        if let highlight, !highlight.isEmpty {
-            let nsText = text as NSString
-            let range = nsText.range(of: highlight)
-            if range.location != NSNotFound {
-                attributed.addAttributes([
-                    .foregroundColor: NSColor.systemRed,
-                    .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
-                ], range: range)
-            }
-        }
-
-        return attributed
     }
 
     private func selectLanguage(_ language: AppLanguage) {
@@ -823,7 +926,10 @@ final class SettingsWindowController: NSWindowController {
             DispatchQueue.main.async {
                 guard let self else { return }
 
-                guard error == nil, let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let tagName = json["tag_name"] as? String else {
+                guard error == nil,
+                      let data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let tagName = json["tag_name"] as? String else {
                     self.aboutStatusLabel.stringValue = L10n.text("aboutUpdateFailed")
                     return
                 }
