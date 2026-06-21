@@ -39,6 +39,7 @@ final class AppState {
     private let defaults = UserDefaults.standard
     private let languageKey = "preferredLanguage"
     private let onboardingKey = "didShowOnboarding"
+    private let menuBarIconKey = "showMenuBarIcon"
 
     var preferredLanguage: AppLanguage {
         get {
@@ -66,6 +67,18 @@ final class AppState {
         get { defaults.bool(forKey: onboardingKey) }
         set { defaults.set(newValue, forKey: onboardingKey) }
     }
+
+    var showMenuBarIcon: Bool {
+        get {
+            if defaults.object(forKey: menuBarIconKey) == nil {
+                return true
+            }
+            return defaults.bool(forKey: menuBarIconKey)
+        }
+        set {
+            defaults.set(newValue, forKey: menuBarIconKey)
+        }
+    }
 }
 
 enum L10n {
@@ -86,11 +99,12 @@ enum L10n {
             "settingsMenu": "Settings…",
             "enabled": "Enabled",
             "quit": "Quit",
-            "generalSection": "General",
+            "generalSection": "Preferences",
             "language": "Language",
-            "launchAtLogin": "Open at Login",
+            "launchAtLogin": "Launch at Startup",
+            "showMenuBarIcon": "Show Menu Bar Icon",
             "permissionsSection": "Permissions",
-            "setupTitle": "Setup Guide",
+            "setupTitle": "INITIAL SETUP & REQUIRED ACCESS",
             "accessibility": "Accessibility",
             "accessibilityDetail": "Required to post the synthetic Return key.",
             "inputMonitoring": "Input Monitoring (Optional)",
@@ -109,8 +123,8 @@ enum L10n {
             "openAccessibilitySettings": "Open Accessibility Settings",
             "openInputMonitoringSettings": "Open Input Monitoring Settings",
             "recheckPermissions": "Recheck Permissions",
-            "aboutSection": "About",
-            "advancedSection": "Advanced",
+            "aboutSection": "Information",
+            "advancedSection": "Advanced Actions",
             "aboutVersion": "Version",
             "aboutProject": "GitHub Project",
             "aboutIssue": "Report Issue",
@@ -139,7 +153,7 @@ enum L10n {
             "followSystem": "Follow System",
             "simplifiedChinese": "Chinese (Simplified)",
             "english": "English",
-            "settingsIntroTitle": "A menu bar utility.",
+            "settingsIntroTitle": "AutoSend",
             "settingsIntroBody": "Double-tap Left Control to send Return.",
         ],
         .simplifiedChinese: [
@@ -151,6 +165,7 @@ enum L10n {
             "generalSection": "通用",
             "language": "语言",
             "launchAtLogin": "开机自启",
+            "showMenuBarIcon": "显示菜单栏图标",
             "permissionsSection": "权限",
             "setupTitle": "引导步骤",
             "accessibility": "辅助功能",
@@ -201,7 +216,7 @@ enum L10n {
             "followSystem": "跟随系统",
             "simplifiedChinese": "简体中文",
             "english": "英语",
-            "settingsIntroTitle": "菜单栏常驻工具。",
+            "settingsIntroTitle": "AutoSend",
             "settingsIntroBody": "连按两下左 Control 即可发送回车。",
         ]
     ]

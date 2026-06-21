@@ -6,12 +6,16 @@ enum AppIconProvider {
     }
 
     static func statusBarIcon(triggered: Bool) -> NSImage? {
-        guard let image = appIcon()?.copy() as? NSImage else {
+        let symbolName = triggered ? "bolt.fill" : "bolt"
+        let configuration = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold, scale: .medium)
+        guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration)?
+            .copy() as? NSImage else {
             return nil
         }
 
         image.size = NSSize(width: 18, height: 18)
-        image.isTemplate = false
+        image.isTemplate = true
         return image
     }
 

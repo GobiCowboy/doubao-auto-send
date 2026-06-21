@@ -84,6 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         updateStatusIcon(triggered: false)
+        syncStatusBarVisibility()
 
         statusItem.button?.target = self
         statusItem.button?.action = #selector(openSettingsMenuItem)
@@ -101,6 +102,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.image = image
         button.imagePosition = .imageOnly
         button.contentTintColor = nil
+    }
+
+    private func syncStatusBarVisibility() {
+        statusItem?.isVisible = state.showMenuBarIcon
     }
 
     // MARK: - Actions
@@ -126,6 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             permissionManager: permissionManager,
             onLanguageChanged: { [weak self] in self?.refreshLocalizedContent() },
             onToggleLaunchAtLogin: { [weak self] in self?.toggleLaunchAtLoginFromSettings() },
+            onToggleMenuBarIcon: { [weak self] in self?.toggleMenuBarIconVisibilityFromSettings() },
             onOpenAccessibilitySettings: { [weak self] in self?.openAccessibilitySettings() },
             onOpenInputMonitoringSettings: { [weak self] in self?.openInputMonitoringSettings() },
             onRecheck: { [weak self] in self?.refreshMonitoringState() },
@@ -145,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshLocalizedContent() {
         settingsWindowController?.refreshLocalizedContent()
         settingsWindowController?.refreshLaunchAtLoginState()
+        settingsWindowController?.refreshMenuBarIconState()
         settingsWindowController?.refreshWorkflowState(restartRequired: restartRequired)
     }
 
@@ -160,6 +167,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             presentAlert(title: L10n.text("openAtLoginFailed"), message: error.localizedDescription)
         }
+    }
+
+    private func toggleMenuBarIconVisibilityFromSettings() {
+        state.showMenuBarIcon.toggle()
+        syncStatusBarVisibility()
+        settingsWindowController?.refreshMenuBarIconState()
     }
 
     // MARK: - Permissions
