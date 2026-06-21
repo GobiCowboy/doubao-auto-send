@@ -2,11 +2,6 @@ import AppKit
 import ServiceManagement
 
 final class SettingsWindowController: NSWindowController {
-    private enum SetupStage {
-        case accessibility
-        case inputMonitoring
-    }
-
     private let permissionManager: PermissionManager
     private let onLanguageChanged: () -> Void
     private let onToggleLaunchAtLogin: () -> Void
@@ -21,21 +16,21 @@ final class SettingsWindowController: NSWindowController {
     private let headerIconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
+    private let closeButton = NSButton(title: "", target: nil, action: nil)
     private let guideSectionLabel = NSTextField(labelWithString: "")
     private var guideSectionHeaderRow = NSStackView()
     private let guideCardView = NSView()
     private let guideTitleLabel = NSTextField(labelWithString: "")
     private let guideDetailLabel = NSTextField(labelWithString: "")
     private let guideActionButton = NSButton(title: "", target: nil, action: nil)
-    private let guideRestartButton = NSButton(title: "", target: nil, action: nil)
 
     private let generalSectionLabel = NSTextField(labelWithString: "")
     private let languageLabel = NSTextField(labelWithString: "")
     private let languagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let launchAtLoginLabel = NSTextField(labelWithString: "")
-    private let launchAtLoginCheckbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let launchAtLoginSwitch = NSSwitch()
     private let showMenuBarIconLabel = NSTextField(labelWithString: "")
-    private let showMenuBarIconCheckbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let showMenuBarIconSwitch = NSSwitch()
 
     private let permissionsSectionLabel = NSTextField(labelWithString: "")
     private let accessibilityTitleLabel = NSTextField(labelWithString: "")
@@ -46,7 +41,6 @@ final class SettingsWindowController: NSWindowController {
     private let inputMonitoringStateLabel = NSTextField(labelWithString: "")
     private let inputMonitoringHintLabel = NSTextField(labelWithString: "")
     private let openAccessibilityButton = NSButton(title: "", target: nil, action: nil)
-    private let openInputMonitoringButton = NSButton(title: "", target: nil, action: nil)
     private let recheckButton = NSButton(title: "", target: nil, action: nil)
     private let generalCardView = NSView()
     private let permissionsCardView = NSView()
@@ -57,11 +51,13 @@ final class SettingsWindowController: NSWindowController {
     private let aboutStatusLabel = NSTextField(labelWithString: "")
     private let aboutProjectTitleLabel = NSTextField(labelWithString: "")
     private let aboutIssueTitleLabel = NSTextField(labelWithString: "")
-    private let aboutCheckUpdatesTitleLabel = NSTextField(labelWithString: "")
     private let openProjectButton = NSButton(title: "", target: nil, action: nil)
     private let openIssueButton = NSButton(title: "", target: nil, action: nil)
     private let checkUpdatesButton = NSButton(title: "", target: nil, action: nil)
     private let aboutCardView = NSView()
+    private let updateTitleLabel = NSTextField(labelWithString: "")
+    private let updateDetailLabel = NSTextField(labelWithString: "")
+    private let updateCardView = NSView()
     private let advancedSectionLabel = NSTextField(labelWithString: "")
     private let quitTitleLabel = NSTextField(labelWithString: "")
     private let quitDetailLabel = NSTextField(labelWithString: "")
@@ -116,8 +112,6 @@ final class SettingsWindowController: NSWindowController {
         languageLabel.stringValue = L10n.text("language")
         launchAtLoginLabel.stringValue = L10n.text("launchAtLogin")
         showMenuBarIconLabel.stringValue = L10n.text("showMenuBarIcon")
-        launchAtLoginCheckbox.title = ""
-        showMenuBarIconCheckbox.title = ""
         permissionsSectionLabel.stringValue = L10n.text("permissionsSection")
         aboutSectionLabel.stringValue = L10n.text("aboutSection")
         advancedSectionLabel.stringValue = L10n.text("advancedSection")
@@ -127,20 +121,22 @@ final class SettingsWindowController: NSWindowController {
         inputMonitoringDetailLabel.stringValue = L10n.text("inputMonitoringDetail")
         inputMonitoringHintLabel.stringValue = L10n.text("inputMonitoringRestartHint")
         openAccessibilityButton.title = L10n.text("openAccessibilitySettings")
-        openInputMonitoringButton.title = L10n.text("openInputMonitoringSettings")
         recheckButton.title = L10n.text("recheckPermissions")
         aboutVersionTitleLabel.stringValue = L10n.text("aboutVersion")
         aboutVersionValueLabel.stringValue = currentVersionString()
         aboutStatusLabel.stringValue = ""
+        aboutStatusLabel.isHidden = true
         aboutProjectTitleLabel.stringValue = L10n.text("aboutProject")
         aboutIssueTitleLabel.stringValue = L10n.text("aboutIssue")
-        aboutCheckUpdatesTitleLabel.stringValue = L10n.text("aboutCheckUpdates")
         openProjectButton.title = ""
         openIssueButton.title = ""
         checkUpdatesButton.title = ""
+        updateTitleLabel.stringValue = L10n.text("aboutCheckUpdates")
+        updateDetailLabel.stringValue = "Stay up to date with the latest features and bug fixes."
         quitTitleLabel.stringValue = L10n.text("quit")
         quitDetailLabel.stringValue = L10n.text("restartRequired")
         quitButton.title = L10n.text("quit")
+        closeButton.title = "×"
 
         let selectedLanguage = AppState.shared.preferredLanguage
         languagePopup.removeAllItems()
@@ -158,22 +154,17 @@ final class SettingsWindowController: NSWindowController {
     }
 
     func refreshLaunchAtLoginState() {
-        launchAtLoginCheckbox.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        launchAtLoginSwitch.state = SMAppService.mainApp.status == .enabled ? .on : .off
     }
 
     func refreshMenuBarIconState() {
-        showMenuBarIconCheckbox.state = AppState.shared.showMenuBarIcon ? .on : .off
+        showMenuBarIconSwitch.state = AppState.shared.showMenuBarIcon ? .on : .off
     }
 
     func refreshWorkflowState(restartRequired: Bool) {
         currentRestartRequired = restartRequired
         let accessibilityGranted = permissionManager.isAccessibilityGranted()
         let inputMonitoringGranted = permissionManager.isInputMonitoringGranted()
-        let stage = currentStage(
-            accessibilityGranted: accessibilityGranted,
-            inputMonitoringGranted: inputMonitoringGranted,
-            restartRequired: restartRequired
-        )
 
         accessibilityStateLabel.stringValue = permissionStateText(
             granted: accessibilityGranted,
@@ -181,79 +172,45 @@ final class SettingsWindowController: NSWindowController {
             missingText: L10n.text("accessibilityMissing")
         )
         accessibilityStateLabel.textColor = accessibilityGranted ? .systemGreen : .systemRed
+        accessibilityStateLabel.backgroundColor = accessibilityGranted ? NSColor.systemGreen.withAlphaComponent(0.14) : NSColor.systemRed.withAlphaComponent(0.14)
 
         inputMonitoringStateLabel.stringValue = permissionStateText(
             granted: inputMonitoringGranted,
             grantedText: L10n.text("inputGranted"),
             missingText: L10n.text("inputMissing")
         )
-        inputMonitoringStateLabel.textColor = inputMonitoringGranted ? .systemGreen : .systemRed
+        inputMonitoringStateLabel.textColor = inputMonitoringGranted ? .systemBlue : .systemRed
+        inputMonitoringStateLabel.backgroundColor = inputMonitoringGranted ? NSColor.systemBlue.withAlphaComponent(0.14) : NSColor.systemRed.withAlphaComponent(0.14)
         inputMonitoringHintLabel.isHidden = inputMonitoringGranted
 
-        updateGuide(for: stage)
+        updateGuide(accessibilityGranted: accessibilityGranted)
         updateSectionVisibility(accessibilityGranted: accessibilityGranted, inputMonitoringGranted: inputMonitoringGranted)
+        openAccessibilityButton.title = accessibilityGranted ? L10n.text("openAccessibilitySettings") : L10n.text("grantAccess")
+        recheckButton.title = inputMonitoringGranted ? L10n.text("recheckPermissions") : L10n.text("openInputMonitoringSettings")
     }
 
-    private func currentStage(accessibilityGranted: Bool, inputMonitoringGranted: Bool, restartRequired: Bool) -> SetupStage? {
-        if !accessibilityGranted {
-            return .accessibility
-        }
-        if !inputMonitoringGranted {
-            return .inputMonitoring
-        }
-        if restartRequired {
-            return .inputMonitoring
-        }
-        return nil
-    }
-
-    private func updateGuide(for stage: SetupStage?) {
-        guard let stage else {
-            guideSectionHeaderRow.isHidden = true
-            guideCardView.isHidden = true
-            setGuidePulseActive(false)
-            return
-        }
-
+    private func updateGuide(accessibilityGranted: Bool) {
         guideSectionHeaderRow.isHidden = false
         guideCardView.isHidden = false
         guideTitleLabel.textColor = .labelColor
-        setGuidePulseActive(stage == .accessibility)
+        setGuidePulseActive(!accessibilityGranted)
 
-        switch stage {
-        case .accessibility:
-            guideTitleLabel.stringValue = L10n.text("step1Title")
-            guideDetailLabel.attributedStringValue = attributedGuideDetail(
-                text: L10n.text("step1Detail"),
-                highlight: nil
-            )
-            guideActionButton.title = L10n.text("step1Action")
-            guideActionButton.target = self
-            guideActionButton.action = #selector(openAccessibility)
-            guideActionButton.isHidden = false
-            guideRestartButton.isHidden = true
-        case .inputMonitoring:
-            guideTitleLabel.stringValue = L10n.text("step2Title")
-            guideDetailLabel.attributedStringValue = attributedGuideDetail(
-                text: L10n.text("step2Detail"),
-                highlight: L10n.text("restartPromptHighlight")
-            )
-            guideActionButton.title = L10n.text("step2Action")
-            guideActionButton.target = self
-            guideActionButton.action = #selector(openInputMonitoring)
-            guideActionButton.isHidden = false
-            guideRestartButton.title = L10n.text("restartAction")
-            guideRestartButton.target = self
-            guideRestartButton.action = #selector(restartApp)
-            guideRestartButton.isHidden = false
-        }
+        guideTitleLabel.stringValue = L10n.text("step1Title")
+        guideDetailLabel.attributedStringValue = attributedGuideDetail(
+            text: L10n.text("step1Detail"),
+            highlight: nil
+        )
+        guideActionButton.title = accessibilityGranted ? L10n.text("openAccessibilitySettings") : L10n.text("grantAccess")
+        guideActionButton.target = self
+        guideActionButton.action = #selector(openAccessibility)
+        guideActionButton.isHidden = false
     }
 
     private func updateSectionVisibility(accessibilityGranted: Bool, inputMonitoringGranted: Bool) {
-        openAccessibilityButton.isHidden = accessibilityGranted
-        openInputMonitoringButton.isHidden = !accessibilityGranted || inputMonitoringGranted
-        inputMonitoringHintLabel.isHidden = !accessibilityGranted || inputMonitoringGranted
+        openAccessibilityButton.isHidden = false
         recheckButton.isHidden = false
+        inputMonitoringHintLabel.isHidden = !accessibilityGranted || inputMonitoringGranted
+        recheckButton.contentTintColor = inputMonitoringGranted ? .systemBlue : .systemBlue
     }
 
     private func setGuidePulseActive(_ active: Bool) {
@@ -280,6 +237,11 @@ final class SettingsWindowController: NSWindowController {
         guard let window else { return }
         window.title = L10n.text("settingsTitle")
         window.styleMask = [.titled, .closable, .miniaturizable]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.isReleasedWhenClosed = false
         window.center()
         window.setContentSize(NSSize(width: 920, height: 920))
@@ -354,6 +316,15 @@ final class SettingsWindowController: NSWindowController {
         subtitleLabel.maximumNumberOfLines = 2
         subtitleLabel.lineBreakMode = .byWordWrapping
 
+        closeButton.target = self
+        closeButton.action = #selector(closeWindow)
+        closeButton.font = .systemFont(ofSize: 20, weight: .regular)
+        closeButton.bezelStyle = .inline
+        closeButton.isBordered = false
+        closeButton.contentTintColor = .labelColor
+        closeButton.alignment = .center
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+
         guideTitleLabel.font = .systemFont(ofSize: 30, weight: .bold)
         guideTitleLabel.textColor = .systemBlue
         guideDetailLabel.font = .systemFont(ofSize: 16, weight: .medium)
@@ -366,11 +337,13 @@ final class SettingsWindowController: NSWindowController {
         guideActionButton.bezelStyle = .rounded
         guideActionButton.controlSize = .large
         guideActionButton.font = .systemFont(ofSize: 15, weight: .medium)
-        guideRestartButton.target = self
-        guideRestartButton.action = #selector(restartApp)
-        guideRestartButton.bezelStyle = .rounded
-        guideRestartButton.controlSize = .large
-        guideRestartButton.font = .systemFont(ofSize: 15, weight: .medium)
+        guideActionButton.image = NSImage(systemSymbolName: "gearshape.fill", accessibilityDescription: nil)
+        guideActionButton.contentTintColor = .white
+        guideActionButton.imagePosition = .imageLeading
+        guideActionButton.wantsLayer = true
+        guideActionButton.layer?.backgroundColor = NSColor.systemBlue.cgColor
+        guideActionButton.layer?.cornerRadius = 12
+        guideActionButton.layer?.masksToBounds = true
 
         guideSectionLabel.isHidden = true
         guideSectionHeaderRow.isHidden = true
@@ -389,7 +362,7 @@ final class SettingsWindowController: NSWindowController {
         guideLeftStack.alignment = .leading
         guideLeftStack.spacing = 14
 
-        let guideButtonStack = NSStackView(views: [guideActionButton, guideRestartButton])
+        let guideButtonStack = NSStackView(views: [guideActionButton])
         guideButtonStack.orientation = .vertical
         guideButtonStack.alignment = .trailing
         guideButtonStack.spacing = 10
@@ -406,12 +379,16 @@ final class SettingsWindowController: NSWindowController {
         guideCardView.layer?.shadowRadius = 14
         guideCardView.layer?.shadowOffset = .zero
 
-        headerIconView.image = AppIconProvider.appIcon()
+        headerIconView.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil)
+        headerIconView.contentTintColor = .white
         headerIconView.imageScaling = .scaleProportionallyDown
+        headerIconView.wantsLayer = true
+        headerIconView.layer?.backgroundColor = NSColor.systemBlue.cgColor
+        headerIconView.layer?.cornerRadius = 10
         headerIconView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            headerIconView.widthAnchor.constraint(equalToConstant: 44),
-            headerIconView.heightAnchor.constraint(equalToConstant: 44),
+            headerIconView.widthAnchor.constraint(equalToConstant: 40),
+            headerIconView.heightAnchor.constraint(equalToConstant: 40),
         ])
 
         [guideSectionLabel, generalSectionLabel, permissionsSectionLabel, aboutSectionLabel, advancedSectionLabel].forEach {
@@ -420,7 +397,7 @@ final class SettingsWindowController: NSWindowController {
             $0.isHidden = false
         }
 
-        [languageLabel, launchAtLoginLabel, showMenuBarIconLabel, accessibilityTitleLabel, inputMonitoringTitleLabel, aboutVersionTitleLabel, aboutProjectTitleLabel, aboutIssueTitleLabel, aboutCheckUpdatesTitleLabel, quitTitleLabel].forEach {
+        [languageLabel, launchAtLoginLabel, showMenuBarIconLabel, accessibilityTitleLabel, inputMonitoringTitleLabel, aboutVersionTitleLabel, aboutProjectTitleLabel, aboutIssueTitleLabel, quitTitleLabel].forEach {
             $0.font = .systemFont(ofSize: 14, weight: .medium)
         }
 
@@ -433,25 +410,19 @@ final class SettingsWindowController: NSWindowController {
         inputMonitoringHintLabel.textColor = .systemRed
         quitDetailLabel.font = .systemFont(ofSize: 12, weight: .regular)
         quitDetailLabel.textColor = .secondaryLabelColor
-        [accessibilityStateLabel, inputMonitoringStateLabel].forEach {
-            $0.font = .systemFont(ofSize: 10, weight: .semibold)
-            $0.textColor = .systemRed
-        }
+        stylePill(accessibilityStateLabel, textColor: .systemRed, backgroundColor: NSColor.systemRed.withAlphaComponent(0.14))
+        stylePill(inputMonitoringStateLabel, textColor: .systemBlue, backgroundColor: NSColor.systemBlue.withAlphaComponent(0.14))
 
         languagePopup.target = self
         languagePopup.action = #selector(languageChanged)
 
-        launchAtLoginCheckbox.target = self
-        launchAtLoginCheckbox.action = #selector(toggleLaunchAtLogin)
-        launchAtLoginCheckbox.title = ""
-        showMenuBarIconCheckbox.target = self
-        showMenuBarIconCheckbox.action = #selector(toggleMenuBarIcon)
-        showMenuBarIconCheckbox.title = ""
+        launchAtLoginSwitch.target = self
+        launchAtLoginSwitch.action = #selector(toggleLaunchAtLogin)
+        showMenuBarIconSwitch.target = self
+        showMenuBarIconSwitch.action = #selector(toggleMenuBarIcon)
 
         openAccessibilityButton.target = self
         openAccessibilityButton.action = #selector(openAccessibility)
-        openInputMonitoringButton.target = self
-        openInputMonitoringButton.action = #selector(openInputMonitoring)
         recheckButton.target = self
         recheckButton.action = #selector(recheckPermissions)
         openProjectButton.target = self
@@ -463,24 +434,39 @@ final class SettingsWindowController: NSWindowController {
         quitButton.target = self
         quitButton.action = #selector(quitApp)
 
-        [openAccessibilityButton, openInputMonitoringButton, recheckButton].forEach {
+        [openAccessibilityButton, recheckButton].forEach {
             _ = rightButton($0, tint: .systemBlue)
         }
         [openProjectButton, openIssueButton, checkUpdatesButton, quitButton].forEach {
             _ = rightButton($0)
         }
-        openProjectButton.image = NSImage(systemSymbolName: "link", accessibilityDescription: nil)
-        openIssueButton.image = NSImage(systemSymbolName: "exclamationmark.bubble", accessibilityDescription: nil)
-        checkUpdatesButton.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
+        openProjectButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: nil)
+        openIssueButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: nil)
+        checkUpdatesButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
         quitButton.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
-        quitButton.contentTintColor = .systemRed
+        [openProjectButton, openIssueButton, checkUpdatesButton].forEach {
+            $0.contentTintColor = .secondaryLabelColor
+        }
+        quitButton.contentTintColor = .white
+        quitButton.imagePosition = .imageLeading
+        quitButton.wantsLayer = true
+        quitButton.layer?.backgroundColor = NSColor.systemRed.cgColor
+        quitButton.layer?.cornerRadius = 10
+        quitButton.layer?.masksToBounds = true
         [openProjectButton, openIssueButton, checkUpdatesButton].forEach {
             $0.imagePosition = .imageOnly
         }
+        checkUpdatesButton.wantsLayer = true
+        checkUpdatesButton.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        checkUpdatesButton.layer?.borderWidth = 1
+        checkUpdatesButton.layer?.borderColor = NSColor.systemBlue.cgColor
+        checkUpdatesButton.layer?.cornerRadius = 10
+        checkUpdatesButton.layer?.masksToBounds = true
+        checkUpdatesButton.contentTintColor = .systemBlue
 
         let languageRow = makeRow(left: titleRow(icon: "globe", title: languageLabel), right: languagePopup)
-        let launchRow = makeRow(left: titleRow(icon: "power", title: launchAtLoginLabel), right: launchAtLoginCheckbox)
-        let menuBarRow = makeRow(left: titleRow(icon: "eye", title: showMenuBarIconLabel), right: showMenuBarIconCheckbox)
+        let launchRow = makeRow(left: titleRow(icon: "power", title: launchAtLoginLabel), right: launchAtLoginSwitch)
+        let menuBarRow = makeRow(left: titleRow(icon: "eye", title: showMenuBarIconLabel), right: showMenuBarIconSwitch)
         let generalStack = makeSectionStack(rows: [languageRow, makeDivider(), launchRow, makeDivider(), menuBarRow], spacing: 0)
         configureCardContainer(generalCardView, content: generalStack)
 
@@ -500,15 +486,13 @@ final class SettingsWindowController: NSWindowController {
                 detail: inputMonitoringDetailLabel,
                 status: inputMonitoringStateLabel
             ),
-            right: openInputMonitoringButton
+            right: recheckButton
         )
-        let permissionsFooterRow = makeRow(left: NSView(), right: recheckButton)
         let permissionsStack = makeSectionStack(rows: [
             accessibilityTopRow,
             makeDivider(),
             inputMonitoringTopRow,
             inputMonitoringHintLabel,
-            permissionsFooterRow,
         ], spacing: 0)
         configureCardContainer(permissionsCardView, content: permissionsStack)
 
@@ -516,30 +500,52 @@ final class SettingsWindowController: NSWindowController {
         aboutVersionValueLabel.textColor = .secondaryLabelColor
         let aboutProjectRow = makeRow(left: titleRow(icon: "link", title: aboutProjectTitleLabel), right: openProjectButton)
         let aboutIssueRow = makeRow(left: titleRow(icon: "bubble.left", title: aboutIssueTitleLabel), right: openIssueButton)
-        let aboutUpdatesRow = makeRow(left: titleRow(icon: "arrow.clockwise", title: aboutCheckUpdatesTitleLabel), right: checkUpdatesButton)
         let aboutStack = makeSectionStack(rows: [
             aboutVersionRow,
             makeDivider(),
             aboutProjectRow,
             makeDivider(),
             aboutIssueRow,
-            makeDivider(),
-            aboutUpdatesRow,
-            aboutStatusLabel,
         ], spacing: 0)
         configureCardContainer(aboutCardView, content: aboutStack)
 
+        let updateLeftStack = NSStackView(views: [updateTitleLabel, updateDetailLabel])
+        updateLeftStack.orientation = .vertical
+        updateLeftStack.alignment = .leading
+        updateLeftStack.spacing = 4
+        updateTitleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        updateDetailLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        updateDetailLabel.textColor = .secondaryLabelColor
+        updateDetailLabel.maximumNumberOfLines = 2
+
+        let updateRow = makeRow(left: updateLeftStack, right: checkUpdatesButton)
+        let updateStack = makeSectionStack(rows: [updateRow, aboutStatusLabel], spacing: 0)
+        configureCardContainer(updateCardView, content: updateStack)
+
         let quitStack = makeRow(left: titleDetailRow(icon: "power", title: quitTitleLabel, detail: quitDetailLabel), right: quitButton)
         configureCardContainer(advancedCardView, content: quitStack)
+        advancedCardView.wantsLayer = true
+        advancedCardView.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.06).cgColor
+        advancedCardView.layer?.borderColor = NSColor.systemRed.withAlphaComponent(0.20).cgColor
 
         let titleStack = NSStackView(views: [titleLabel, subtitleLabel])
         titleStack.orientation = .vertical
         titleStack.alignment = .leading
-        titleStack.spacing = 3
+        titleStack.spacing = 4
 
-        let headerStack = NSStackView(views: [headerIconView, titleStack])
+        let headerLeftStack = NSStackView(views: [headerIconView, titleStack])
+        headerLeftStack.orientation = .horizontal
+        headerLeftStack.alignment = .centerY
+        headerLeftStack.spacing = 12
+
+        let headerSpacer = NSView()
+        headerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        headerSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let headerStack = NSStackView(views: [headerLeftStack, headerSpacer, closeButton])
         headerStack.orientation = .horizontal
         headerStack.alignment = .centerY
+        headerStack.distribution = .fill
         headerStack.spacing = 12
 
         guideSectionHeaderRow = makeSectionHeader(guideSectionLabel)
@@ -554,6 +560,7 @@ final class SettingsWindowController: NSWindowController {
             permissionsCardView,
             makeSectionHeader(aboutSectionLabel),
             aboutCardView,
+            updateCardView,
             makeSectionHeader(advancedSectionLabel),
             advancedCardView,
         ])
@@ -685,6 +692,18 @@ final class SettingsWindowController: NSWindowController {
         return row
     }
 
+    private func stylePill(_ label: NSTextField, textColor: NSColor, backgroundColor: NSColor) {
+        label.wantsLayer = true
+        label.layer?.cornerRadius = 999
+        label.layer?.masksToBounds = true
+        label.drawsBackground = true
+        label.backgroundColor = backgroundColor
+        label.textColor = textColor
+        label.alignment = .center
+        label.font = .systemFont(ofSize: 10, weight: .semibold)
+        label.maximumNumberOfLines = 1
+    }
+
     private func permissionStateText(granted: Bool, grantedText: String, missingText: String) -> String {
         granted ? grantedText : missingText
     }
@@ -760,7 +779,11 @@ final class SettingsWindowController: NSWindowController {
     }
 
     @objc private func recheckPermissions() {
-        onRecheck()
+        if permissionManager.isInputMonitoringGranted() {
+            onRecheck()
+        } else {
+            onOpenInputMonitoringSettings()
+        }
     }
 
     @objc private func restartApp() {
@@ -769,6 +792,10 @@ final class SettingsWindowController: NSWindowController {
 
     @objc private func quitApp() {
         onQuitApp()
+    }
+
+    @objc private func closeWindow() {
+        window?.close()
     }
 
     @objc private func openProject() {
@@ -781,6 +808,7 @@ final class SettingsWindowController: NSWindowController {
 
     @objc private func checkForUpdates() {
         aboutStatusLabel.stringValue = L10n.text("aboutCheckingUpdates")
+        aboutStatusLabel.isHidden = false
 
         guard let url = URL(string: "https://api.github.com/repos/GobiCowboy/doubao-auto-send/releases/latest") else {
             aboutStatusLabel.stringValue = L10n.text("aboutUpToDate")
